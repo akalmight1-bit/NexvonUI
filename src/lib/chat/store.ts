@@ -18,17 +18,22 @@ type ChatState = {
   streaming: boolean;
   error: string | null;
   suggestions: string[];
+  toast: string | null;
   setSidebarOpen: (open: boolean) => void;
   toggleTheme: () => void;
   newChat: () => void;
   selectChat: (id: string) => void;
   deleteChat: (id: string) => void;
+  clearAll: () => void;
   active: () => Conversation | undefined;
   pushUser: (content: string) => { conversationId: string; messages: ChatMessage[] };
   beginAssistant: (conversationId: string) => string;
   appendAssistant: (conversationId: string, messageId: string, chunk: string) => void;
+  removeLastAssistant: (conversationId: string) => ChatMessage[] | null;
   setStreaming: (v: boolean) => void;
   setError: (msg: string | null) => void;
+  showToast: (msg: string) => void;
+  clearToast: () => void;
   renameIfNeeded: (conversationId: string, firstUser: string) => void;
 };
 
@@ -50,6 +55,7 @@ export const useChatStore = create<ChatState>()(
       theme: "dark",
       streaming: false,
       error: null,
+      toast: null,
       suggestions: SUGGESTIONS,
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       toggleTheme: () =>
@@ -76,6 +82,13 @@ export const useChatStore = create<ChatState>()(
           const activeId =
             s.activeId === id ? (conversations[0]?.id ?? null) : s.activeId;
           return { conversations, activeId };
+        }),
+      clearAll: () =>
+        set({
+          conversations: [],
+          activeId: null,
+          error: null,
+          sidebarOpen: false,
         }),
       active: () => get().conversations.find((c) => c.id === get().activeId),
       pushUser: (content) => {
@@ -138,8 +151,25 @@ export const useChatStore = create<ChatState>()(
           ),
         }));
       },
+      removeLastAssistant: (conversationId) => {
+        const convo = get().conversations.find((c) => c.id === conversationId);
+        if (!convo || convo.messages.length === 0) return null;
+        const last = convo.messages[convo.messages.length - 1];
+        if (last.role !== "assistant") return null;
+        const messages = convo.messages.slice(0, -1);
+        set((s) => ({
+          conversations: s.conversations.map((c) =>
+            c.id === conversationId
+              ? { ...c, messages, updatedAt: Date.now() }
+              : c,
+          ),
+        }));
+        return messages;
+      },
       setStreaming: (v) => set({ streaming: v }),
       setError: (msg) => set({ error: msg }),
+      showToast: (msg) => set({ toast: msg }),
+      clearToast: () => set({ toast: null }),
       renameIfNeeded: (conversationId, firstUser) => {
         set((s) => ({
           conversations: s.conversations.map((c) => {

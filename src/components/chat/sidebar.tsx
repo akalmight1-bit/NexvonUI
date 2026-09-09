@@ -4,6 +4,18 @@ import { useChatStore } from "@/lib/chat/store";
 import { cn } from "@/lib/utils";
 import { Logo } from "./logo";
 
+function relativeTime(ts: number) {
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export function Sidebar() {
   const conversations = useChatStore((s) => s.conversations);
   const activeId = useChatStore((s) => s.activeId);
@@ -11,7 +23,9 @@ export function Sidebar() {
   const selectChat = useChatStore((s) => s.selectChat);
   const deleteChat = useChatStore((s) => s.deleteChat);
   const newChat = useChatStore((s) => s.newChat);
+  const clearAll = useChatStore((s) => s.clearAll);
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
+  const streaming = useChatStore((s) => s.streaming);
 
   const panel = (
     <aside
@@ -45,13 +59,14 @@ export function Sidebar() {
           variant="primary"
           className="w-full rounded-md"
           onClick={newChat}
+          disabled={streaming}
         >
           <Plus className="size-4" />
           New chat
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {conversations.length === 0 ? (
           <p className="px-3 py-6 text-sm text-faint">No orbits yet.</p>
         ) : (
@@ -69,18 +84,23 @@ export function Sidebar() {
                     <button
                       type="button"
                       onClick={() => selectChat(c.id)}
-                      className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2.5 text-left"
+                      className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2 text-left"
                     >
                       <MessageSquare
                         className={cn("size-4 shrink-0", active ? "text-accent" : "text-faint")}
                       />
-                      <span
-                        className={cn(
-                          "truncate text-sm",
-                          active ? "text-fg" : "text-muted",
-                        )}
-                      >
-                        {c.title}
+                      <span className="min-w-0 flex-1">
+                        <span
+                          className={cn(
+                            "block truncate text-sm",
+                            active ? "text-fg" : "text-muted",
+                          )}
+                        >
+                          {c.title}
+                        </span>
+                        <span className="block text-[10px] text-faint">
+                          {relativeTime(c.updatedAt)}
+                        </span>
                       </span>
                     </button>
                     <button
@@ -98,6 +118,22 @@ export function Sidebar() {
           </ul>
         )}
       </div>
+
+      {conversations.length > 0 ? (
+        <div className="border-t border-border px-3 py-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm("Clear all conversations? This cannot be undone.")) {
+                clearAll();
+              }
+            }}
+            className="w-full rounded-md px-3 py-2 text-left text-xs text-faint transition-colors hover:bg-fg/5 hover:text-danger"
+          >
+            Clear all history
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
 

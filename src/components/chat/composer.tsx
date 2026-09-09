@@ -46,7 +46,12 @@ export function Composer({
 
   return (
     <form onSubmit={onSubmit} className="mx-auto w-full max-w-2xl px-4 pb-5 sm:px-6">
-      <div className="nx-glass-strong flex items-end gap-2 rounded-xl p-2">
+      <div
+        className={cn(
+          "nx-glass-strong flex items-end gap-2 rounded-xl p-2 transition-shadow duration-200",
+          "focus-within:shadow-[0_0_0_1px_rgba(127,220,255,0.22)]",
+        )}
+      >
         <label className="sr-only" htmlFor="nexvon-input">
           Message Nexvon
         </label>
@@ -60,12 +65,15 @@ export function Composer({
           onKeyDown={onKey}
           placeholder="Ask Nexvon…"
           className="min-h-11 max-h-40 flex-1 bg-transparent px-3 py-2.5 text-base text-fg placeholder:text-faint sm:text-sm"
+          autoComplete="off"
+          spellCheck
         />
         {streaming ? (
           <button
             type="button"
             onClick={onStop}
-            aria-label="Stop generating"
+            aria-label="Stop generating (Esc)"
+            title="Stop · Esc"
             className="mb-0.5 grid size-11 shrink-0 place-items-center rounded-md bg-fg text-bg transition-transform duration-150 active:scale-[0.96]"
           >
             <Square className="size-3.5 fill-current" />
@@ -85,7 +93,7 @@ export function Composer({
         )}
       </div>
       <p className="mt-2 text-center text-[11px] tracking-wide text-faint">
-        Enter to send · Shift+Enter for a new line
+        Enter to send · Shift+Enter for a new line · ⌘N new chat
       </p>
     </form>
   );
