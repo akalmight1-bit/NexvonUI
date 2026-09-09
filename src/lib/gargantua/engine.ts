@@ -83,7 +83,7 @@ export class GargantuaEngine {
   private target: Vec3 = { x: 0, y: 0, z: 0 };
   private spherical: Spherical;
   private camPos: Vec3;
-  private steps = 180;
+  private steps = 220;
   private pulse = 0;
   private energy = 0;
   private tug = 0;
@@ -320,7 +320,7 @@ export class GargantuaEngine {
   private resize() {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio || 1, Math.min(w, h) < 640 ? 1 : 1.25);
+    const dpr = Math.min(window.devicePixelRatio || 1, Math.min(w, h) < 640 ? 1 : 1.5);
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
