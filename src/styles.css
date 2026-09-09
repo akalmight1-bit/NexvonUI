@@ -249,6 +249,16 @@ html[data-theme="light"] .bh-scanlines {
   box-shadow: var(--shadow-border);
 }
 
+/* Same look as .nx-glass but no backdrop-filter — for large,
+   persistently-visible panels (e.g. the sidebar) sitting above the
+   animated canvas. backdrop-filter re-blurs everything behind it on
+   every canvas repaint; over a big region that's a frame-rate killer.
+   A solid tinted background reads almost identically at rest. */
+.nx-solid {
+  background: var(--glass-strong);
+  box-shadow: var(--shadow-border);
+}
+
 .nx-glass-strong {
   background: var(--glass-strong);
   backdrop-filter: blur(28px);
