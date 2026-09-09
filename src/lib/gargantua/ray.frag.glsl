@@ -1,7 +1,5 @@
 precision highp float;
-
 varying vec2 vUv;
-
 uniform vec2  uRes;
 uniform float uTime;
 uniform vec3  uCamPos;
@@ -19,10 +17,15 @@ uniform float uDiskBright;
 uniform float uStarBright;
 uniform float uSkyFloor;
 uniform float uRotSpeed;
-
+uniform float uPulse;
+uniform float uEnergy;
+uniform vec2  uRippleOrigin;
+uniform float uRippleT;
+uniform float uRippleAmp;
+uniform vec3  uPart[16];
+uniform int   uPartCount;
 #define RS 1.0
 
-// ---------------------------------------------------------------- noise -----
 float hash1(vec3 p){
   p = fract(p*0.3183099 + vec3(0.10,0.17,0.13));
   p *= 17.0;
@@ -48,7 +51,6 @@ float vnoise(vec3 x){
   return mix(mix(mix(n000,n100,f.x), mix(n010,n110,f.x), f.y),
              mix(mix(n001,n101,f.x), mix(n011,n111,f.x), f.y), f.z);
 }
-// five-octave value-noise FBM, frequency x2.03 + 11.3, amplitude halved from .5
 float fbm(vec3 p){
   float v = 0.0;
   float a = 0.5;
@@ -60,7 +62,6 @@ float fbm(vec3 p){
   return v;
 }
 
-// ------------------------------------------------------ pseudo-blackbody ----
 vec3 blackbody(float t){
   vec3 c = mix(vec3(0.55,0.06,0.01), vec3(1.00,0.42,0.10), smoothstep(0.00,0.55,t));
   c = mix(c, vec3(1.00,0.86,0.55), smoothstep(0.50,1.05,t));
@@ -68,7 +69,6 @@ vec3 blackbody(float t){
   return c;
 }
 
-// ------------------------------------------------------------ star field ----
 mat3 layerRot(float ay, float ax){
   float cy = cos(ay), sy = sin(ay), cx = cos(ax), sx = sin(ax);
   return mat3(cy,0.0,-sy,  sy*sx,cx,cy*sx,  sy*cx,-sx,cy*cx);
@@ -123,15 +123,25 @@ vec3 background(vec3 d){
   return col*uStarBright;
 }
 
-// Schwarzschild null-geodesic acceleration (c = G = 1, RS = 1)
 vec3 accAt(vec3 p, vec3 v){
   vec3 h = cross(p, v);
   float r2 = dot(p, p);
   return -1.5*RS*dot(h, h)/(r2*r2*sqrt(r2))*p;
 }
 
-// Accretion-disk plane crossing (multiple crossings permitted).
-// Returns true when front-to-back opacity saturates (ray absorbed by disk).
+float particleBoost(float ang, float qr){
+  float acc = 0.0;
+  for(int i=0;i<16;i++){
+    if(i >= uPartCount) break;
+    vec3 pt = uPart[i];
+    if(pt.z <= 0.001) continue;
+    float da = atan(sin(ang - pt.x), cos(ang - pt.x));
+    float dr = qr - pt.y;
+    acc += exp(-da*da*90.0 - dr*dr*5.5) * pt.z;
+  }
+  return acc;
+}
+
 bool diskCross(vec3 a, vec3 b, vec3 rayDir,
                inout vec3 col, inout float trans,
                inout float crossCount, inout float validCross,
@@ -146,19 +156,16 @@ bool diskCross(vec3 a, vec3 b, vec3 rayDir,
   float ang = atan(q.z, q.x);
   if(validCross < 1.5){ firstAng = ang; crossRad = qr; }
 
-  // Novikov\u2013Thorne style flux, ISCO = 3 RS
   float x = max(qr, 3.001);
   float flux = max(pow(x/3.0, -3.0)*(1.0 - sqrt(3.0/x)), 0.0);
   float temp = pow(flux*10.0, 0.25);
 
-  // seamless rotating pattern coords (rotate cartesian, never atan-sample)
   float omega = uRotSign*1.1*uRotSpeed*pow(3.0/qr, 1.5);
   float rot = omega*uTime;
   float ca = cos(rot), sa = sin(rot);
   vec3 qp = vec3(ca*q.x + sa*q.z, 0.0, -sa*q.x + ca*q.z);
   vec2 rp = qp.xz/qr;
 
-  // turbulence: warp at 1.5x, inner detail, 22x streaks, lane mask
   vec3 pc = vec3(rp.x*3.0, rp.y*3.0, qr*0.85);
   vec3 warp = vec3(
     fbm(pc*1.5),
@@ -168,20 +175,19 @@ bool diskCross(vec3 a, vec3 b, vec3 rayDir,
   float innerDetail = 1.0 - smoothstep(4.0, 18.0, qr);
   turb = mix(0.50, turb*1.7, innerDetail);
   float streakN = fbm(vec3(rp.x*22.0, rp.y*22.0, qr*1.4));
-  // 22x streaks live in the inner disk; outer haze stays smooth
   float streak = mix(0.95, mix(0.55, 1.15, smoothstep(0.25, 0.85, streakN)), innerDetail);
   float lane = fbm(vec3(rp.x*5.0, rp.y*5.0, qr*0.55) + warp*0.8);
   float laneMask = mix(0.85, mix(0.50, 1.30, smoothstep(0.15, 0.80, lane)), innerDetail);
-  // radial gain: inner disk fierce, outer disk a dim smooth haze
   float radialGain = mix(0.38, 1.0, innerDetail);
   turbDbg = turb;
 
   float I = flux*11.0*turb*streak*laneMask*radialGain;
-  I += exp(-pow((qr-3.1)*3.0, 2.0))*2.8;              // inner glow
+  I += exp(-pow((qr-3.1)*3.0, 2.0))*2.8;
+  I += particleBoost(ang, qr) * 16.0;
+  I *= 1.0 + uPulse * 0.9 + uEnergy * 0.55;
   float outerFade = 1.0 - smoothstep(uDout-14.0, uDout, qr);
   I *= outerFade;
 
-  // relativistic beaming + gravitational redshift
   float beta = sqrt(0.5/qr);
   float gamma = 1.0/sqrt(max(1.0 - beta*beta, 1e-4));
   vec3 tdir = normalize(vec3(-sin(ang), 0.0, cos(ang)))*uRotSign;
@@ -197,9 +203,14 @@ bool diskCross(vec3 a, vec3 b, vec3 rayDir,
   return false;
 }
 
-// ------------------------------------------------------------------ main ----
 void main(){
   vec2 p = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
+  if(uRippleAmp > 0.001){
+    vec2 fromR = p - uRippleOrigin;
+    float rlen = length(fromR);
+    float wave = sin(rlen * 26.0 - uRippleT * 10.0) * exp(-uRippleT * 1.35) * exp(-rlen * 0.85) * uRippleAmp;
+    p += (fromR / max(rlen, 1e-4)) * wave * 0.05;
+  }
   vec3 ro = uCamPos;
   vec3 ww = normalize(uCamTarget - ro);
   vec3 uu = normalize(cross(ww, vec3(0.0,1.0,0.0)));
@@ -208,8 +219,8 @@ void main(){
 
   vec3 pos = ro;
   vec3 vel = rd;
-  vec3 col = vec3(0.0);              // disk accumulator (front-to-back)
-  vec3 haloCol = vec3(0.0);          // volumetric halo (dropped if captured)
+  vec3 col = vec3(0.0);
+  vec3 haloCol = vec3(0.0);
   float trans = 1.0;
   float minR = 1e5;
   float lastR = length(ro);
@@ -220,18 +231,17 @@ void main(){
   float crossRad = 0.0;
   float turbDbg = 0.0;
 
-  for(int i=0;i<160;i++){
+  for(int i=0;i<600;i++){
     if(i >= uSteps) break;
     float r = length(pos);
     lastR = r;
-    if(r < 1.03*RS){ trans = 0.0; break; }                 // event horizon
-    if(r > 45.0 && dot(pos,vel) > 0.0){ break; }           // escaped
+    if(r < 1.03*RS){ trans = 0.0; break; }
+    if(r > 45.0 && dot(pos,vel) > 0.0){ break; }
     stepsUsed = i + 1;
     minR = min(minR, r);
 
     float dt = max(0.012, r*mix(0.02, 0.06, smoothstep(6.0, 20.0, r)));
 
-    // thin volumetric halo hugging the disk plane
     float absY = abs(pos.y);
     if(absY < 0.45 && r > uDin && r < uDout){
       float dens = exp(-absY*30.0)*0.03*(1.0 - smoothstep(10.0, uDout-1.0, r));
@@ -242,9 +252,6 @@ void main(){
     }
 
     if(r < 4.4){
-      // near-critical refinement: two fixed half-substeps with midpoint
-      // acceleration (RK2); total advancement still matches baseDt and the
-      // outer uSteps budget is unchanged
       float hdt = dt*0.5;
       bool absorbed = false;
       for(int s = 0; s < 2; s++){
@@ -272,51 +279,21 @@ void main(){
     }
   }
 
-  // lensed background sampled only in the final escape direction.
-  // Budget-exhausted rays keep trans and contribute continuously dimmed
-  // deep-well light (spec \xA77.5); halo counts for non-captured rays and is
-  // dimmed by the same factor, so the horizon itself stays pure black.
   vec3 bgAdd = vec3(0.0);
   if(trans > 0.0){
     float deep = clamp((lastR-1.03)*0.45, 0.45, 1.0);
     col += haloCol * deep;
     bgAdd = trans * background(vel) * deep;
   }
-  // photon ring from the tracked perigee (thin critical curve, bloom-fed)
-  vec3 ringAdd = vec3(1.0,0.92,0.80) * exp(-pow((minR-1.55)*4.0, 2.0)) * 0.05;
+  vec3 ringAdd = vec3(1.0,0.92,0.80) * exp(-pow((minR-1.55)*4.0, 2.0)) * (0.05 + uPulse * 0.18);
 
-  vec3 outCol;
-  if(uDebug == 1){                       // disk / halo only
-    outCol = col;
-  }else if(uDebug == 2){                 // lensed background only
-    outCol = bgAdd;
-  }else if(uDebug == 3){                 // step usage
-    outCol = vec3(float(stepsUsed)/float(max(uSteps,1)));
-  }else if(uDebug == 4){                 // first-crossing radius map
-    float v = clamp(crossRad/max(uDout,1e-3), 0.0, 1.0);
-    outCol = (validCross > 0.5) ? vec3(v, v*(1.0-v)*2.4, 1.0-v) : vec3(0.0);
-  }else if(uDebug == 5){                 // raw turbulence
-    outCol = vec3(clamp(turbDbg, 0.0, 1.0));
-  }else if(uDebug == 6){                 // minR (red) / crossing count (green)
-    outCol = vec3(clamp(minR/12.0,0.0,1.0), clamp(crossCount/4.0,0.0,1.0), 0.0);
-  }else if(uDebug == 7){                 // valid crossing count
-    if(validCross < 0.5)      outCol = vec3(0.0);
-    else if(validCross < 1.5) outCol = vec3(0.0,0.0,1.0);
-    else if(validCross < 2.5) outCol = vec3(0.0,1.0,0.0);
-    else                      outCol = vec3(1.0,0.0,0.0);
-  }else if(uDebug == 8){                 // three-phase sine of first crossing angle
-    outCol = (validCross > 0.5)
-      ? 0.5 + 0.5*sin(firstAng + vec3(0.0, 2.0944, 4.1888))
-      : vec3(0.0);
-  }else if(uDebug == 9){                 // crossing-radius bands
-    float band = mod(floor(crossRad), 2.0);
-    outCol = (validCross > 0.5)
-      ? mix(vec3(0.05,0.15,0.45), vec3(0.95,0.55,0.15), band)
-      : vec3(0.0);
-  }else{                                 // 0 \u2014 normal
-    outCol = col + bgAdd + ringAdd;
-  }
-
+  vec3 outCol = col + bgAdd + ringAdd;
   outCol = clamp(max(outCol, vec3(0.0)), vec3(0.0), vec3(64.0));
-  gl_FragColor = vec4(outCol, 1.0);
+
+  vec3 mapped = clamp((outCol*(2.51*outCol + 0.03))/(outCol*(2.43*outCol + 0.59) + 0.14), 0.0, 1.0);
+  float aspect = uRes.x/max(uRes.y, 1.0);
+  vec2 dir = vUv - 0.5;
+  float vig = smoothstep(1.30, 0.30, length(dir*vec2(aspect, 1.0))*1.15);
+  mapped *= mix(1.0, vig, 1.0);
+  gl_FragColor = vec4(mapped, 1.0);
 }
