@@ -18,7 +18,6 @@ export function GargantuaBg() {
           engine = new GargantuaEngine(canvasRef.current);
           engine.start();
 
-          // When the engine marks the canvas live, fade out the CSS bubble
           observer = new MutationObserver(() => {
             if (canvasRef.current?.classList.contains("is-live")) {
               fallbackRef.current?.classList.add("is-dimmed");
@@ -33,7 +32,7 @@ export function GargantuaBg() {
         .catch(() => {
           /* WebGL unavailable — CSS fallback remains */
         });
-    }, 700);
+    }, 200);
 
     return () => {
       disposed = true;
@@ -49,12 +48,13 @@ export function GargantuaBg() {
       aria-hidden="true"
     >
       <div ref={fallbackRef} className="bh-fallback" />
+      {/* pointer-events auto so drag/click reach the canvas */}
       <canvas
         ref={canvasRef}
-        className="bh-canvas absolute inset-0 block h-full w-full"
+        className="bh-canvas absolute inset-0 block h-full w-full pointer-events-auto"
         aria-hidden="true"
       />
-      <div className="bh-scanlines" />
+      <div className="bh-scanlines pointer-events-none" />
     </div>
   );
 }

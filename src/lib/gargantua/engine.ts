@@ -1,218 +1,232 @@
-import {
-  HalfFloatType,
-  LinearSRGBColorSpace,
-  Mesh,
-  NoToneMapping,
-  OrthographicCamera,
-  PerspectiveCamera,
-  PlaneGeometry,
-  Scene,
-  ShaderMaterial,
-  UnsignedByteType,
-  Vector2,
-  Vector3,
-  WebGLRenderTarget,
-  WebGLRenderer,
-  MathUtils,
-} from "three";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import rayVert from "./ray.vert.glsl?raw";
+/**
+ * Interactive Gargantua engine — port of the working nexvon-preview.html
+ * Raw WebGL (no Three.js). Drag to orbit, click to disturb, double-click auto-orbit.
+ */
 import rayFrag from "./ray.frag.glsl?raw";
-import compositeVert from "./composite.vert.glsl?raw";
-import compositeFrag from "./composite.frag.glsl?raw";
 
-const FOV = 42;
+const VERT = `
+attribute vec2 position;
+varying vec2 vUv;
+void main(){
+  vUv = position * 0.5 + 0.5;
+  gl_Position = vec4(position, 0.0, 1.0);
+}
+`;
 
-/** Stable Interstellar-style orbit — gentle drift, no extreme angles that balloon the silhouette. */
-function orbitPos(time: number, out: Vector3) {
-  const r = 28;
-  const inc = 12 * (Math.PI / 180); // slight tilt, keeps disk readable
-  const az = time * 0.045; // slow azimuth drift
-  out.set(
-    r * Math.cos(inc) * Math.sin(az),
-    r * Math.sin(inc) + 1.2,
-    r * Math.cos(inc) * Math.cos(az),
-  );
-  return out;
+const HOME = { x: 4.49, y: 2.72, z: 25.46 };
+const FOV_DEG = 44;
+
+type Vec3 = { x: number; y: number; z: number };
+type Spherical = { theta: number; phi: number; radius: number };
+type Particle = { a: number; r: number; life: number };
+
+function vecToSpherical(v: Vec3): Spherical {
+  const radius = Math.hypot(v.x, v.y, v.z);
+  if (radius === 0) return { theta: 0, phi: 0, radius: 0 };
+  return {
+    theta: Math.atan2(v.x, v.z),
+    phi: Math.acos(Math.max(-1, Math.min(1, v.y / radius))),
+    radius,
+  };
 }
 
-function detectProfile(gl: WebGLRenderingContext | WebGL2RenderingContext) {
-  let rendererName = "";
-  try {
-    const info = gl.getExtension("WEBGL_debug_renderer_info");
-    if (info) {
-      rendererName = String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL) || "");
-    }
-  } catch {
-    /* ignore */
+function sphericalToVec(s: Spherical): Vec3 {
+  const sinPhiRadius = Math.sin(s.phi) * s.radius;
+  return {
+    x: sinPhiRadius * Math.sin(s.theta),
+    y: Math.cos(s.phi) * s.radius,
+    z: sinPhiRadius * Math.cos(s.theta),
+  };
+}
+
+function sub(a: Vec3, b: Vec3): Vec3 {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+function add(a: Vec3, b: Vec3): Vec3 {
+  return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+}
+function scale(a: Vec3, s: number): Vec3 {
+  return { x: a.x * s, y: a.y * s, z: a.z * s };
+}
+function cross(a: Vec3, b: Vec3): Vec3 {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+function dot(a: Vec3, b: Vec3) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+function norm(a: Vec3): Vec3 {
+  const l = Math.hypot(a.x, a.y, a.z) || 1;
+  return { x: a.x / l, y: a.y / l, z: a.z / l };
+}
+
+function compile(gl: WebGLRenderingContext, type: number, src: string) {
+  const s = gl.createShader(type);
+  if (!s) throw new Error("createShader failed");
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    throw new Error(gl.getShaderInfoLog(s) || "shader compile error");
   }
-  const software = /swiftshader|llvmpipe|softpipe|microsoft basic|cpu|virtualbox/i.test(
-    rendererName,
-  );
-  if (software) {
-    return { live: false, steps: 48, budget: 1.4e5, dprCap: 0.55, bloom: false, minFrame: 1 / 12 };
-  }
-  return { live: true, steps: 140, budget: 8.5e5, dprCap: 1.1, bloom: true, minFrame: 1 / 36 };
+  return s;
 }
 
 export class GargantuaEngine {
   private canvas: HTMLCanvasElement;
-  private renderer: WebGLRenderer;
-  private composer: EffectComposer;
-  private compositePass: ShaderPass;
-  private uniforms: {
-    uRes: { value: Vector2 };
-    uTime: { value: number };
-    uCamPos: { value: Vector3 };
-    uCamTarget: { value: Vector3 };
-    uFov: { value: number };
-    uSteps: { value: number };
-    uRotSign: { value: number };
-    uDebug: { value: number };
-    uDin: { value: number };
-    uDout: { value: number };
-    uDopMax: { value: number };
-    uOpNear: { value: number };
-    uOpFar: { value: number };
-    uDiskBright: { value: number };
-    uStarBright: { value: number };
-    uSkyFloor: { value: number };
-    uRotSpeed: { value: number };
-  };
-  private camera: PerspectiveCamera;
-  private fsScene: Scene;
-  private fsCam: OrthographicCamera;
-  private fsMat: ShaderMaterial;
-  private fsMesh: Mesh;
+  private gl: WebGLRenderingContext;
+  private prog: WebGLProgram;
+  private uniforms: Record<string, WebGLUniformLocation | null> = {};
+  private partLocs: (WebGLUniformLocation | null)[] = [];
+  private target: Vec3 = { x: 0, y: 0, z: 0 };
+  private spherical: Spherical;
+  private camPos: Vec3;
+  private steps = 180;
+  private pulse = 0;
+  private energy = 0;
+  private tug = 0;
+  private rotSpeed = 1;
+  private diskBright = 1;
+  private rippleOrigin = { x: 0, y: 0 };
+  private rippleT = 10;
+  private rippleAmp = 0;
+  private particles: Particle[] = [];
+  private autoOrbit = false;
   private simTime = 0;
-  private lastNow = 0;
-  private acc = 0;
-  private minFrame: number;
-  private budget: number;
-  private dprCap: number;
+  private last = performance.now();
   private rafId = 0;
   private running = false;
   private disposed = false;
-  private _v1 = new Vector3();
-  private _dbSize = new Vector2();
+  private pointer = { down: false, x: 0, y: 0, moved: false };
+
   private onResize: () => void;
+  private onPointerDown: (e: PointerEvent) => void;
+  private onPointerMove: (e: PointerEvent) => void;
+  private onPointerUp: (e: PointerEvent) => void;
+  private onWheel: (e: WheelEvent) => void;
+  private onDblClick: (e: MouseEvent) => void;
   private onVisibility: () => void;
-  private onContextLost: (e: Event) => void;
-  private onContextRestored: () => void;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.renderer = new WebGLRenderer({
-      canvas,
+    const gl = canvas.getContext("webgl", {
       antialias: false,
-      powerPreference: "high-performance",
       alpha: false,
+      powerPreference: "high-performance",
     });
-    this.renderer.outputColorSpace = LinearSRGBColorSpace;
-    this.renderer.toneMapping = NoToneMapping;
+    if (!gl) throw new Error("WebGL unavailable");
+    this.gl = gl;
 
-    const gl = this.renderer.getContext();
-    const profile = detectProfile(gl);
-    this.minFrame = profile.minFrame;
-    this.budget = profile.budget;
-    this.dprCap = profile.dprCap;
-
-    let halfFloatOK = true;
-    try {
-      halfFloatOK = !!(
-        gl.getExtension("EXT_color_buffer_float") ||
-        gl.getExtension("EXT_color_buffer_half_float")
-      );
-    } catch {
-      halfFloatOK = false;
+    const vs = compile(gl, gl.VERTEX_SHADER, VERT);
+    const fs = compile(gl, gl.FRAGMENT_SHADER, rayFrag);
+    const prog = gl.createProgram();
+    if (!prog) throw new Error("createProgram failed");
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      throw new Error(gl.getProgramInfoLog(prog) || "link failed");
     }
+    this.prog = prog;
+    gl.useProgram(prog);
 
-    this.fsScene = new Scene();
-    this.fsCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
-
-    // Start on a known-good view (not a random cine keyframe)
-    orbitPos(0, this._v1);
-
-    this.uniforms = {
-      uRes: { value: new Vector2(1, 1) },
-      uTime: { value: 0 },
-      uCamPos: { value: this._v1.clone() },
-      uCamTarget: { value: new Vector3(0, 0, 0) },
-      uFov: { value: 1 / Math.tan(MathUtils.degToRad(FOV) / 2) },
-      uSteps: { value: profile.steps },
-      uRotSign: { value: 1 },
-      uDebug: { value: 0 },
-      uDin: { value: 2.75 },
-      uDout: { value: 40 },
-      uDopMax: { value: 1.85 },
-      uOpNear: { value: 0.9 },
-      uOpFar: { value: 0.8 },
-      uDiskBright: { value: 1 },
-      uStarBright: { value: 1 },
-      uSkyFloor: { value: 0.04 },
-      uRotSpeed: { value: 1 },
-    };
-
-    this.fsMat = new ShaderMaterial({
-      vertexShader: rayVert,
-      fragmentShader: rayFrag,
-      uniforms: this.uniforms,
-      depthTest: false,
-      depthWrite: false,
-    });
-    this.fsMesh = new Mesh(new PlaneGeometry(2, 2), this.fsMat);
-    this.fsScene.add(this.fsMesh);
-
-    this.camera = new PerspectiveCamera(FOV, 1, 0.01, 200);
-    this.camera.position.copy(this._v1);
-    this.camera.lookAt(0, 0, 0);
-
-    const rtType = halfFloatOK ? HalfFloatType : UnsignedByteType;
-    const rt = new WebGLRenderTarget(2, 2, { type: rtType, depthBuffer: false });
-    this.composer = new EffectComposer(this.renderer, rt);
-    this.composer.addPass(new RenderPass(this.fsScene, this.fsCam));
-
-    if (profile.bloom && halfFloatOK) {
-      this.composer.addPass(new UnrealBloomPass(new Vector2(2, 2), 0.55, 0.35, 0.55));
-    }
-
-    this.compositePass = new ShaderPass(
-      new ShaderMaterial({
-        vertexShader: compositeVert,
-        fragmentShader: compositeFrag,
-        uniforms: {
-          tDiffuse: { value: null },
-          uRes: { value: new Vector2(1, 1) },
-          uTime: { value: 0 },
-          uVignette: { value: 1 },
-          uGrain: { value: 0.045 },
-          uCA: { value: 0.0028 },
-        },
-      }),
+    const posLoc = gl.getAttribLocation(prog, "position");
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, 1]),
+      gl.STATIC_DRAW,
     );
-    this.composer.addPass(this.compositePass);
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+    const names = [
+      "uRes",
+      "uTime",
+      "uCamPos",
+      "uCamTarget",
+      "uFov",
+      "uSteps",
+      "uRotSign",
+      "uDin",
+      "uDout",
+      "uDopMax",
+      "uOpNear",
+      "uOpFar",
+      "uDiskBright",
+      "uStarBright",
+      "uSkyFloor",
+      "uRotSpeed",
+      "uPulse",
+      "uEnergy",
+      "uRippleOrigin",
+      "uRippleT",
+      "uRippleAmp",
+      "uPartCount",
+    ];
+    for (const n of names) this.uniforms[n] = gl.getUniformLocation(prog, n);
+    for (let i = 0; i < 16; i++) {
+      this.partLocs.push(gl.getUniformLocation(prog, `uPart[${i}]`));
+    }
+
+    this.spherical = vecToSpherical(HOME);
+    this.camPos = { ...HOME };
+    this.applySpherical();
 
     this.onResize = () => this.resize();
     this.onVisibility = () => {
       if (document.hidden) this.stopLoop();
       else if (this.running) this.startLoop();
     };
-    this.onContextLost = (e: Event) => {
-      e.preventDefault();
-      this.stopLoop();
+    this.onPointerDown = (e) => {
+      if (e.button !== 0) return;
+      this.pointer = { down: true, x: e.clientX, y: e.clientY, moved: false };
     };
-    this.onContextRestored = () => {
-      if (this.running) this.startLoop();
+    this.onPointerMove = (e) => {
+      if (!this.pointer.down) return;
+      const dx = e.clientX - this.pointer.x;
+      const dy = e.clientY - this.pointer.y;
+      if (Math.hypot(dx, dy) > 4) this.pointer.moved = true;
+      const h = this.canvas.clientHeight || 1;
+      this.spherical.theta -= 2 * Math.PI * (dx / h) * 0.55;
+      this.spherical.phi = Math.max(
+        0.02,
+        Math.min(Math.PI - 0.02, this.spherical.phi - 2 * Math.PI * (dy / h) * 0.55),
+      );
+      this.applySpherical();
+      this.pointer.x = e.clientX;
+      this.pointer.y = e.clientY;
+    };
+    this.onPointerUp = (e) => {
+      if (!this.pointer.down) return;
+      const moved = this.pointer.moved;
+      this.pointer.down = false;
+      if (!moved) this.interact(e.clientX, e.clientY);
+    };
+    this.onWheel = (e) => {
+      e.preventDefault();
+      this.spherical.radius = Math.max(
+        1.72,
+        Math.min(90, this.spherical.radius * Math.pow(1.0015, e.deltaY)),
+      );
+      this.applySpherical();
+    };
+    this.onDblClick = (e) => {
+      e.preventDefault();
+      this.autoOrbit = !this.autoOrbit;
     };
 
     window.addEventListener("resize", this.onResize);
     window.addEventListener("orientationchange", this.onResize);
     document.addEventListener("visibilitychange", this.onVisibility);
-    canvas.addEventListener("webglcontextlost", this.onContextLost);
-    canvas.addEventListener("webglcontextrestored", this.onContextRestored);
+    canvas.addEventListener("pointerdown", this.onPointerDown);
+    window.addEventListener("pointermove", this.onPointerMove);
+    window.addEventListener("pointerup", this.onPointerUp);
+    canvas.addEventListener("wheel", this.onWheel, { passive: false });
+    canvas.addEventListener("dblclick", this.onDblClick);
 
     this.resize();
   }
@@ -223,10 +237,99 @@ export class GargantuaEngine {
     this.startLoop();
   }
 
+  /** Pulse the disk when the user sends a chat message */
+  feed(count = 3) {
+    for (let i = 0; i < count; i++) {
+      this.spawn(Math.random() * Math.PI * 2, 10 + Math.random() * 18, 0.85 + Math.random() * 0.4);
+    }
+    this.pulse = Math.min(1.4, this.pulse + 0.35);
+  }
+
+  private applySpherical() {
+    const o = sphericalToVec(this.spherical);
+    this.camPos = {
+      x: this.target.x + o.x,
+      y: this.target.y + o.y,
+      z: this.target.z + o.z,
+    };
+  }
+
+  private spawn(ang: number, radius: number, life = 1) {
+    if (this.particles.length >= 16) this.particles.shift();
+    this.particles.push({ a: ang, r: radius, life });
+  }
+
+  private ripple(ndcX: number, ndcY: number, amp: number) {
+    const aspect =
+      (this.canvas.clientWidth || 1) / Math.max(this.canvas.clientHeight || 1, 1);
+    this.rippleOrigin = { x: ndcX * aspect, y: ndcY };
+    this.rippleT = 0;
+    this.rippleAmp = amp;
+  }
+
+  private hitTest(ndcX: number, ndcY: number) {
+    const fov = 1 / Math.tan((FOV_DEG * Math.PI) / 180 / 2);
+    const aspect = this.canvas.clientWidth / Math.max(this.canvas.clientHeight, 1);
+    const wwl = norm(sub(this.target, this.camPos));
+    const uu = norm(cross(wwl, { x: 0, y: 1, z: 0 }));
+    const vv = cross(uu, wwl);
+    const rd = norm(add(add(scale(uu, ndcX * aspect), scale(vv, ndcY)), scale(wwl, fov)));
+    if (Math.abs(rd.y) > 1e-4) {
+      const t = -this.camPos.y / rd.y;
+      if (t > 0.2) {
+        const q = add(this.camPos, scale(rd, t));
+        const qr = Math.hypot(q.x, q.z);
+        if (qr > 2.75 && qr < 40)
+          return { type: "disk" as const, qr, ang: Math.atan2(q.z, q.x) };
+      }
+    }
+    const tca = -dot(this.camPos, rd);
+    const closest = add(this.camPos, scale(rd, Math.max(tca, 0)));
+    const minR = Math.hypot(closest.x, closest.y, closest.z);
+    if (minR < 2.7) return { type: "horizon" as const, minR };
+    return { type: "space" as const, minR };
+  }
+
+  private interact(clientX: number, clientY: number) {
+    const rect = this.canvas.getBoundingClientRect();
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
+    const hit = this.hitTest(ndcX, ndcY);
+    if (hit.type === "horizon") {
+      this.ripple(ndcX, ndcY, 1.15);
+      this.pulse = Math.min(1.6, this.pulse + 0.85);
+      this.tug = Math.max(this.tug, 2.4);
+      for (let i = 0; i < 10; i++) this.spawn((Math.PI * 2 * i) / 10, 5 + Math.random() * 4, 1);
+    } else if (hit.type === "disk") {
+      this.ripple(ndcX, ndcY, 0.7);
+      this.pulse = Math.min(1.4, this.pulse + 0.45);
+      this.tug = Math.max(this.tug, 0.9);
+      for (let i = 0; i < 6; i++) {
+        this.spawn(
+          hit.ang + (Math.random() - 0.5) * 0.6,
+          hit.qr + (Math.random() - 0.5) * 2.5,
+          1,
+        );
+      }
+    } else {
+      this.ripple(ndcX, ndcY, 0.45);
+      this.pulse = Math.min(1.2, this.pulse + 0.22);
+    }
+  }
+
+  private resize() {
+    const w = this.canvas.clientWidth || window.innerWidth;
+    const h = this.canvas.clientHeight || window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, Math.min(w, h) < 640 ? 1 : 1.25);
+    this.canvas.width = Math.round(w * dpr);
+    this.canvas.height = Math.round(h * dpr);
+    this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+  }
+
   private startLoop() {
     if (this.rafId || this.disposed || !this.running) return;
-    this.lastNow = performance.now();
-    const tick = () => {
+    this.last = performance.now();
+    const tick = (now: number) => {
       if (!this.running || this.disposed) {
         this.rafId = 0;
         return;
@@ -235,7 +338,7 @@ export class GargantuaEngine {
         this.rafId = 0;
         return;
       }
-      this.frame();
+      this.frame(now);
       this.rafId = requestAnimationFrame(tick);
     };
     this.rafId = requestAnimationFrame(tick);
@@ -248,50 +351,70 @@ export class GargantuaEngine {
     }
   }
 
-  private frame() {
-    const now = performance.now();
-    const realDelta = Math.max(5e-4, (now - this.lastNow) / 1e3);
-    this.lastNow = now;
-    const dt = Math.min(realDelta, 0.1);
+  private frame(now: number) {
+    const dt = Math.min((now - this.last) / 1000, 0.1);
+    this.last = now;
     this.simTime += dt;
-    this.acc += dt;
-    if (this.acc < this.minFrame) return;
-    this.acc = 0;
 
-    orbitPos(this.simTime, this._v1);
-    this.camera.position.copy(this._v1);
-    this.camera.lookAt(0, 0, 0);
-
-    this.uniforms.uTime.value = this.simTime;
-    this.uniforms.uCamPos.value.copy(this.camera.position);
-    this.uniforms.uCamTarget.value.set(0, 0, 0);
-    const cu = this.compositePass.uniforms;
-    if (cu.uTime) cu.uTime.value = this.simTime;
-
-    try {
-      this.composer.render();
-      this.canvas.classList.add("is-live");
-    } catch {
-      this.stopLoop();
+    if (this.autoOrbit) {
+      this.spherical.theta += 0.16 * dt;
+      this.applySpherical();
     }
-  }
 
-  private resize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const devDpr = window.devicePixelRatio || 1;
-    const byPixels = Math.sqrt(this.budget / Math.max(1, w * h));
-    const dpr = Math.max(0.45, Math.min(devDpr, this.dprCap, byPixels));
-    this.renderer.setPixelRatio(dpr);
-    this.renderer.setSize(w, h, false);
-    this.composer.setPixelRatio(dpr);
-    this.composer.setSize(w, h);
-    this.camera.aspect = w / Math.max(h, 1);
-    this.camera.updateProjectionMatrix();
-    this.renderer.getDrawingBufferSize(this._dbSize);
-    this.uniforms.uRes.value.copy(this._dbSize);
-    const ru = this.compositePass.uniforms;
-    if (ru.uRes) ru.uRes.value.copy(this._dbSize);
+    if (this.tug > 0.01) {
+      this.spherical.radius = Math.max(1.85, this.spherical.radius - this.tug * 4.5 * dt);
+      this.applySpherical();
+      this.tug *= Math.exp(-3.2 * dt);
+    } else this.tug = 0;
+
+    this.pulse *= Math.exp(-1.6 * dt);
+    this.energy *= Math.exp(-0.55 * dt);
+    this.rippleT += dt;
+    this.rippleAmp *= Math.exp(-0.55 * dt);
+
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i]!;
+      const omega = 1.1 * this.rotSpeed * Math.pow(3 / Math.max(p.r, 3), 1.5);
+      p.a += omega * dt;
+      p.r -= (0.9 + 8.4 / Math.max(p.r, 2)) * dt;
+      p.life -= dt * 0.22;
+      if (p.r < 1.55 || p.life <= 0) {
+        this.pulse = Math.min(1.5, this.pulse + 0.12);
+        this.particles.splice(i, 1);
+      }
+    }
+
+    const gl = this.gl;
+    const u = this.uniforms;
+    gl.useProgram(this.prog);
+    gl.uniform2f(u.uRes, this.canvas.width, this.canvas.height);
+    gl.uniform1f(u.uTime, this.simTime);
+    gl.uniform3f(u.uCamPos, this.camPos.x, this.camPos.y, this.camPos.z);
+    gl.uniform3f(u.uCamTarget, this.target.x, this.target.y, this.target.z);
+    gl.uniform1f(u.uFov, 1 / Math.tan((FOV_DEG * Math.PI) / 180 / 2));
+    gl.uniform1i(u.uSteps, this.steps);
+    gl.uniform1f(u.uRotSign, 1);
+    gl.uniform1f(u.uDin, 2.75);
+    gl.uniform1f(u.uDout, 40);
+    gl.uniform1f(u.uDopMax, 1.85);
+    gl.uniform1f(u.uOpNear, 0.9);
+    gl.uniform1f(u.uOpFar, 0.8);
+    gl.uniform1f(u.uDiskBright, this.diskBright);
+    gl.uniform1f(u.uStarBright, 1);
+    gl.uniform1f(u.uSkyFloor, 0.04);
+    gl.uniform1f(u.uRotSpeed, this.rotSpeed);
+    gl.uniform1f(u.uPulse, this.pulse);
+    gl.uniform1f(u.uEnergy, this.energy);
+    gl.uniform2f(u.uRippleOrigin, this.rippleOrigin.x, this.rippleOrigin.y);
+    gl.uniform1f(u.uRippleT, this.rippleT);
+    gl.uniform1f(u.uRippleAmp, this.rippleAmp);
+    gl.uniform1i(u.uPartCount, this.particles.length);
+    for (let i = 0; i < 16; i++) {
+      const p = this.particles[i];
+      gl.uniform3f(this.partLocs[i], p ? p.a : 0, p ? p.r : 0, p ? p.life : 0);
+    }
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    this.canvas.classList.add("is-live");
   }
 
   dispose() {
@@ -301,11 +424,11 @@ export class GargantuaEngine {
     window.removeEventListener("resize", this.onResize);
     window.removeEventListener("orientationchange", this.onResize);
     document.removeEventListener("visibilitychange", this.onVisibility);
-    this.canvas.removeEventListener("webglcontextlost", this.onContextLost);
-    this.canvas.removeEventListener("webglcontextrestored", this.onContextRestored);
-    this.fsMat.dispose();
-    this.fsMesh.geometry.dispose();
-    this.composer.dispose();
-    this.renderer.dispose();
+    this.canvas.removeEventListener("pointerdown", this.onPointerDown);
+    window.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("pointerup", this.onPointerUp);
+    this.canvas.removeEventListener("wheel", this.onWheel);
+    this.canvas.removeEventListener("dblclick", this.onDblClick);
+    this.gl.deleteProgram(this.prog);
   }
 }
