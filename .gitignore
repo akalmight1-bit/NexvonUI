@@ -3,3 +3,22 @@ node_modules/
 .github_repo
 .env
 .env.*
+
+# Build / deploy output
+.vercel/
+dist/
+build/
+
+# Grok agent scaffolding (do not commit)
+.grok/
+
+# Generated / temp
+artifacts/
+screenshots/
+attachments/
+.node_modules.lock
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
