@@ -30,7 +30,7 @@ export function Sidebar() {
   const panel = (
     <aside
       className={cn(
-        "nx-glass flex h-full w-sidebar shrink-0 flex-col border-r border-border",
+        "nx-solid flex h-full w-sidebar shrink-0 flex-col border-r border-border",
         "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-2xl",
         "max-md:transition-transform max-md:duration-[250ms] max-md:ease-[cubic-bezier(0.22,1,0.36,1)]",
         sidebarOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full",
