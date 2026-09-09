@@ -24,62 +24,20 @@ import rayFrag from "./ray.frag.glsl?raw";
 import compositeVert from "./composite.vert.glsl?raw";
 import compositeFrag from "./composite.frag.glsl?raw";
 
-const D2R = Math.PI / 180;
-const CINE_SEGMENT = 11;
-const FOV = 44;
+const FOV = 42;
 
-const CINE_KEYS: [number, number, number][] = [
-  [58, 12, -30],
-  [36, 6, 10],
-  [26, 24, 55],
-  [14, 14, 100],
-  [20, 52, 150],
-  [34, 80, 200],
-  [46, 35, 270],
-  [36, 8, 330],
-];
-
-const K_R = CINE_KEYS.map((k) => k[0]);
-const K_I = CINE_KEYS.map((k) => k[1] * D2R);
-const K_A = CINE_KEYS.map((k) => k[2] * D2R);
-
-function cr(p0: number, p1: number, p2: number, p3: number, t: number) {
-  const t2 = t * t;
-  const t3 = t2 * t;
-  return (
-    0.5 *
-    (2 * p1 +
-      (-p0 + p2) * t +
-      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-      (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
-  );
-}
-
-function wrapIdx(k: number, n: number) {
-  return ((k % n) + n) % n;
-}
-
-function cinePath(time: number, out: Vector3) {
-  const n = CINE_KEYS.length;
-  const seg = Math.max(1, CINE_SEGMENT);
-  const tt = time / seg;
-  const i = Math.floor(tt);
-  const t = tt - i;
-  const v = (arr: number[], k: number) => arr[wrapIdx(k, n)]!;
-  const az = (k: number) => K_A[wrapIdx(k, n)]! + 2 * Math.PI * Math.floor(k / n);
-  const r = cr(v(K_R, i - 1), v(K_R, i), v(K_R, i + 1), v(K_R, i + 2), t);
-  const inc = cr(v(K_I, i - 1), v(K_I, i), v(K_I, i + 1), v(K_I, i + 2), t);
-  const a = cr(az(i - 1), az(i), az(i + 1), az(i + 2), t);
+/** Stable Interstellar-style orbit — gentle drift, no extreme angles that balloon the silhouette. */
+function orbitPos(time: number, out: Vector3) {
+  const r = 28;
+  const inc = 12 * (Math.PI / 180); // slight tilt, keeps disk readable
+  const az = time * 0.045; // slow azimuth drift
   out.set(
-    r * Math.cos(inc) * Math.sin(a),
-    r * Math.sin(inc),
-    r * Math.cos(inc) * Math.cos(a),
+    r * Math.cos(inc) * Math.sin(az),
+    r * Math.sin(inc) + 1.2,
+    r * Math.cos(inc) * Math.cos(az),
   );
   return out;
 }
-
-const easeCubic = (k: number) =>
-  k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
 
 function detectProfile(gl: WebGLRenderingContext | WebGL2RenderingContext) {
   let rendererName = "";
@@ -129,9 +87,6 @@ export class GargantuaEngine {
   private fsCam: OrthographicCamera;
   private fsMat: ShaderMaterial;
   private fsMesh: Mesh;
-  private cineFrom = new Vector3();
-  private cineBlend = 0;
-  private cineTime = 0;
   private simTime = 0;
   private lastNow = 0;
   private acc = 0;
@@ -178,10 +133,13 @@ export class GargantuaEngine {
     this.fsScene = new Scene();
     this.fsCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
+    // Start on a known-good view (not a random cine keyframe)
+    orbitPos(0, this._v1);
+
     this.uniforms = {
       uRes: { value: new Vector2(1, 1) },
       uTime: { value: 0 },
-      uCamPos: { value: new Vector3(4.49, 2.72, 25.46) },
+      uCamPos: { value: this._v1.clone() },
       uCamTarget: { value: new Vector3(0, 0, 0) },
       uFov: { value: 1 / Math.tan(MathUtils.degToRad(FOV) / 2) },
       uSteps: { value: profile.steps },
@@ -209,9 +167,8 @@ export class GargantuaEngine {
     this.fsScene.add(this.fsMesh);
 
     this.camera = new PerspectiveCamera(FOV, 1, 0.01, 200);
-    this.camera.position.set(4.49, 2.72, 25.46);
+    this.camera.position.copy(this._v1);
     this.camera.lookAt(0, 0, 0);
-    this.cineFrom.copy(this.camera.position);
 
     const rtType = halfFloatOK ? HalfFloatType : UnsignedByteType;
     const rt = new WebGLRenderTarget(2, 2, { type: rtType, depthBuffer: false });
@@ -297,16 +254,11 @@ export class GargantuaEngine {
     this.lastNow = now;
     const dt = Math.min(realDelta, 0.1);
     this.simTime += dt;
-    this.cineTime += dt;
     this.acc += dt;
     if (this.acc < this.minFrame) return;
     this.acc = 0;
 
-    cinePath(this.cineTime, this._v1);
-    if (this.cineBlend < 1) {
-      this.cineBlend = Math.min(1, this.cineBlend + dt / 2);
-      this._v1.lerpVectors(this.cineFrom, this._v1, easeCubic(this.cineBlend));
-    }
+    orbitPos(this.simTime, this._v1);
     this.camera.position.copy(this._v1);
     this.camera.lookAt(0, 0, 0);
 

@@ -3,22 +3,30 @@ export type StreamHandlers = {
   signal?: AbortSignal;
 };
 
+/** Backend base URL. Empty = same-origin `/api/chat` (needs XAI_API_KEY on the UI server). */
+function chatEndpoint() {
+  const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+  if (base) return `${base}/v1/chat`;
+  return "/api/chat";
+}
+
 export async function streamChat(
   messages: { role: "user" | "assistant"; content: string }[],
   handlers: StreamHandlers,
 ) {
-  const res = await fetch("/api/chat", {
+  const res = await fetch(chatEndpoint(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, stream: true }),
     signal: handlers.signal,
   });
 
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string; detail?: string };
       if (body.error) detail = body.error;
+      else if (body.detail) detail = body.detail;
     } catch {
       /* ignore */
     }
