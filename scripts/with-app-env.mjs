@@ -20,7 +20,7 @@
  * `process.env`, which is why the merge has to happen before Vite starts.
  */
 import { spawn } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 export const APP_ENV_REL_PATH = ".grok/app-env.json";
 
 const VITE_PREFIX = "VITE_";
+const isWin = process.platform === "win32";
 
 /**
  * Parse an app-env document, keeping only `VITE_`-prefixed string entries.
@@ -88,6 +89,23 @@ export function projectRoot() {
 }
 
 /**
+ * Resolve a CLI to the local node_modules/.bin entry when present.
+ * On Windows, prefer `.cmd` shims so spawn does not hit ENOENT.
+ */
+export function resolveLocalBin(command, root = projectRoot()) {
+  const binDir = join(root, "node_modules", ".bin");
+  if (isWin) {
+    const cmd = join(binDir, `${command}.cmd`);
+    if (existsSync(cmd)) return cmd;
+    const ps1 = join(binDir, `${command}.ps1`);
+    if (existsSync(ps1)) return ps1;
+  }
+  const unix = join(binDir, command);
+  if (existsSync(unix)) return unix;
+  return command;
+}
+
+/**
  * Whether `moduleUrl` is the script node was asked to run.
  *
  * Both sides are resolved through symlinks: node realpaths `import.meta.url`
@@ -111,10 +129,22 @@ function main(argv) {
     process.exit(2);
   }
   const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
-  const child = spawn(command, args, { stdio: "inherit", env });
+  const resolved = resolveLocalBin(command);
+  // shell:true is required on Windows so .cmd shims run correctly
+  const child = spawn(resolved, args, {
+    stdio: "inherit",
+    env,
+    shell: isWin,
+  });
   // The dev server is long-running and is stopped by signalling this wrapper.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-    process.on(signal, () => child.kill(signal));
+    process.on(signal, () => {
+      try {
+        child.kill(signal);
+      } catch {
+        /* already exited */
+      }
+    });
   }
   child.on("error", (err) => {
     console.error(`[with-app-env] failed to run ${command}:`, err?.message || err);
