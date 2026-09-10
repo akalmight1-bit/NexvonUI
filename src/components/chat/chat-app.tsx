@@ -8,6 +8,7 @@ import { EmptyState } from "./empty-state";
 import { MessageList } from "./message-list";
 import { Composer } from "./composer";
 import { Logo } from "./logo";
+import { SettingsModal } from "./settings-modal";
 
 export function ChatApp() {
   const conversations = useChatStore((s) => s.conversations);
@@ -244,6 +245,8 @@ export function ChatApp() {
           {toast}
         </div>
       ) : null}
+
+      <SettingsModal />
     </div>
   );
 }
