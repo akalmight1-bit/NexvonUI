@@ -9,6 +9,7 @@ import { MessageList } from "./message-list";
 import { Composer } from "./composer";
 import { Logo } from "./logo";
 import { SettingsModal } from "./settings-modal";
+import { IntroAnimation, useIntroGate } from "./intro-animation";
 
 export function ChatApp() {
   const conversations = useChatStore((s) => s.conversations);
@@ -29,6 +30,8 @@ export function ChatApp() {
   const newChat = useChatStore((s) => s.newChat);
   const toggleTheme = useChatStore((s) => s.toggleTheme);
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
+
+  const { showIntro, appVisible, handleComplete } = useIntroGate();
 
   const [draft, setDraft] = useState("");
   const abortRef = useRef<AbortController | null>(null);
@@ -69,14 +72,14 @@ export function ChatApp() {
     return () => window.removeEventListener("keydown", onKey);
   }, [streaming, newChat, setStreaming]);
 
-  // Focus composer when conversation is empty or switches
+  // Focus composer when conversation is empty or switches (after intro)
   useEffect(() => {
-    if (streaming) return;
+    if (streaming || !appVisible) return;
     const id = window.requestAnimationFrame(() => {
       document.getElementById("nexvon-input")?.focus();
     });
     return () => window.cancelAnimationFrame(id);
-  }, [activeId, streaming]);
+  }, [activeId, streaming, appVisible]);
 
   async function runStream(
     conversationId: string,
@@ -145,7 +148,16 @@ export function ChatApp() {
 
   return (
     <div className="relative flex h-full overflow-hidden bg-void text-fg">
-      <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
+      {showIntro ? <IntroAnimation onComplete={handleComplete} /> : null}
+
+      <div
+        className="relative z-10 flex min-h-0 min-w-0 flex-1 transition-all duration-700"
+        style={{
+          opacity: appVisible ? 1 : 0,
+          transform: appVisible ? "scale(1)" : "scale(0.97)",
+          transitionTimingFunction: "cubic-bezier(0.34, 1.2, 0.64, 1)",
+        }}
+      >
         <Sidebar />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
