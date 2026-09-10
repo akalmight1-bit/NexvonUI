@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Menu, Moon, Plus, Sun } from "lucide-react";
-import { GargantuaBg } from "@/components/gargantua-bg";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/lib/chat/store";
 import { streamChat } from "@/lib/chat/stream";
@@ -145,8 +144,6 @@ export function ChatApp() {
 
   return (
     <div className="relative flex h-full overflow-hidden bg-void text-fg">
-      <GargantuaBg />
-
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
         <Sidebar />
 
