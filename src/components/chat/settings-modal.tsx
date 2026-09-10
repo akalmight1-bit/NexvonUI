@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Moon, Sun, Trash2, X } from "lucide-react";
 import { useChatStore } from "@/lib/chat/store";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
@@ -20,7 +20,6 @@ export function SettingsModal() {
       if (e.key === "Escape") setSettingsOpen(false);
     }
     document.addEventListener("keydown", onKey);
-    // Focus the panel for accessibility
     panelRef.current?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, [open, setSettingsOpen]);
@@ -57,7 +56,6 @@ export function SettingsModal() {
         className="relative z-10 flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-border bg-[var(--elevated)] shadow-2xl outline-none"
         style={{ animation: "fadeUp 200ms var(--ease-out) both" }}
       >
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 id="settings-title" className="text-base font-semibold text-fg">
             Settings
@@ -73,7 +71,6 @@ export function SettingsModal() {
         </div>
 
         <div className="max-h-[min(70vh,520px)] overflow-y-auto px-5 py-4">
-          {/* Account */}
           <Section title="Account">
             <div className="flex items-center gap-3 rounded-xl border border-border bg-surface/50 px-3.5 py-3">
               {user?.profileImageUrl ? (
@@ -94,7 +91,6 @@ export function SettingsModal() {
             </div>
           </Section>
 
-          {/* Appearance */}
           <Section title="Appearance">
             <div className="flex items-center justify-between gap-3 rounded-xl border border-border px-3.5 py-3">
               <div>
@@ -120,7 +116,6 @@ export function SettingsModal() {
             </div>
           </Section>
 
-          {/* Data */}
           <Section title="Data">
             <div className="rounded-xl border border-border px-3.5 py-3">
               <div className="flex items-start justify-between gap-3">
@@ -162,7 +157,6 @@ export function SettingsModal() {
             </div>
           </Section>
 
-          {/* About */}
           <Section title="About">
             <div className="rounded-xl border border-border px-3.5 py-3 text-sm text-muted">
               <p className="font-medium text-fg">Nexvon</p>
@@ -178,7 +172,7 @@ export function SettingsModal() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mb-5 last:mb-1">
       <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-faint">
@@ -198,7 +192,7 @@ function ThemeButton({
   active: boolean;
   onClick: () => void;
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }) {
   return (
     <button
@@ -206,9 +200,7 @@ function ThemeButton({
       onClick={onClick}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
-        active
-          ? "bg-fg text-bg"
-          : "text-muted hover:text-fg",
+        active ? "bg-fg text-bg" : "text-muted hover:text-fg",
       )}
       aria-pressed={active}
     >
