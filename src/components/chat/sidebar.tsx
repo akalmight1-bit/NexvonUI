@@ -30,6 +30,7 @@ function relativeTime(ts: number) {
 
 function UserMenu() {
   const user = useCurrentUser();
+  const setSettingsOpen = useChatStore((s) => s.setSettingsOpen);
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -111,8 +112,7 @@ function UserMenu() {
               label="Settings"
               onClick={() => {
                 setOpen(false);
-                // Placeholder — wire to a settings route/modal later
-                window.alert("Settings coming soon");
+                setSettingsOpen(true);
               }}
             />
             <MenuItem
