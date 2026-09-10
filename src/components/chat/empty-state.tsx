@@ -11,12 +11,11 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
           <span className="size-1.5 rounded-full bg-accent animate-pulse" />
           Live · Online
         </div>
-        <h1 className="font-display text-4xl text-fg italic tracking-tight sm:text-5xl drop-shadow-[0_2px_24px_rgba(0,0,0,0.8)]">
+        <h1 className="font-display text-4xl text-fg italic tracking-tight sm:text-5xl">
           Nexvon
         </h1>
-        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted drop-shadow-[0_1px_12px_rgba(0,0,0,0.8)]">
-          An observatory intelligence orbiting Gargantua. Drag the void. Click to disturb
-          spacetime. Then ask.
+        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted">
+          Your AI companion. Ask anything.
         </p>
       </div>
       <div className="mt-6 mb-2 grid w-full max-w-xl grid-cols-1 gap-2 sm:grid-cols-2 pointer-events-auto">
