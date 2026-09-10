@@ -1,222 +1,84 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import {
-  HelpCircle,
-  LogOut,
   MessageSquare,
+  PanelLeft,
+  PanelLeftClose,
   Plus,
+  Search,
   Settings,
-  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { useChatStore } from "@/lib/chat/store";
-import { cn } from "@/lib/utils";
-import { authEnabled, signOut } from "@/lib/auth/client";
-import { useCurrentUser } from "@/lib/auth/use-current-user";
+import { cn, groupConversations, relativeTime } from "@/lib/utils";
 import { Logo } from "./logo";
-
-function relativeTime(ts: number) {
-  const diff = Date.now() - ts;
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function UserMenu() {
-  const user = useCurrentUser();
-  const setSettingsOpen = useChatStore((s) => s.setSettingsOpen);
-  const [open, setOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onDoc(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  if (!user) return null;
-
-  const email = user.primaryEmail ?? "Account";
-  const label = user.displayName ?? email;
-  const initials = (user.displayName ?? email)
-    .split(/[\s@._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
-    .join("") || "U";
-
-  return (
-    <div ref={rootRef} className="relative border-t border-border px-3 py-3">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors",
-          "hover:bg-fg/6",
-          open && "bg-fg/8",
-        )}
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        {user.profileImageUrl ? (
-          <img
-            src={user.profileImageUrl}
-            alt=""
-            className="size-8 shrink-0 rounded-full object-cover"
-          />
-        ) : (
-          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-accent text-xs font-semibold text-accent-fg">
-            {initials}
-          </span>
-        )}
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-fg">{label}</span>
-          {user.primaryEmail && user.displayName ? (
-            <span className="block truncate text-[11px] text-faint">{user.primaryEmail}</span>
-          ) : null}
-        </span>
-      </button>
-
-      {open ? (
-        <div
-          role="menu"
-          className="absolute bottom-[calc(100%+6px)] left-3 right-3 z-50 overflow-hidden rounded-xl border border-border bg-[var(--elevated)] shadow-xl"
-          style={{ animation: "fadeUp 160ms var(--ease-out) both" }}
-        >
-          <div className="border-b border-border px-3.5 py-2.5">
-            <p className="truncate text-xs text-faint">{email}</p>
-          </div>
-
-          <div className="py-1">
-            <MenuItem
-              icon={<Settings className="size-4" />}
-              label="Settings"
-              onClick={() => {
-                setOpen(false);
-                setSettingsOpen(true);
-              }}
-            />
-            <MenuItem
-              icon={<HelpCircle className="size-4" />}
-              label="Help"
-              onClick={() => {
-                setOpen(false);
-                window.alert("Help coming soon");
-              }}
-            />
-            <MenuItem
-              icon={<Sparkles className="size-4" />}
-              label="Upgrade plan"
-              onClick={() => {
-                setOpen(false);
-                window.alert("Upgrade plan coming soon");
-              }}
-            />
-          </div>
-
-          {authEnabled ? (
-            <div className="border-t border-border py-1">
-              <MenuItem
-                icon={<LogOut className="size-4" />}
-                label={signingOut ? "Signing out…" : "Sign Out"}
-                danger
-                disabled={signingOut}
-                onClick={() => {
-                  setSigningOut(true);
-                  void signOut().catch(() => setSigningOut(false));
-                }}
-              />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function MenuItem({
-  icon,
-  label,
-  onClick,
-  danger,
-  disabled,
-}: {
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm transition-colors",
-        danger
-          ? "text-danger hover:bg-danger/10"
-          : "text-fg hover:bg-fg/6",
-        disabled && "opacity-50",
-      )}
-    >
-      <span className={cn("shrink-0", danger ? "text-danger" : "text-faint")}>{icon}</span>
-      {label}
-    </button>
-  );
-}
 
 export function Sidebar() {
   const conversations = useChatStore((s) => s.conversations);
   const activeId = useChatStore((s) => s.activeId);
   const sidebarOpen = useChatStore((s) => s.sidebarOpen);
+  const collapsed = useChatStore((s) => s.sidebarCollapsed);
   const selectChat = useChatStore((s) => s.selectChat);
   const deleteChat = useChatStore((s) => s.deleteChat);
   const newChat = useChatStore((s) => s.newChat);
-  const clearAll = useChatStore((s) => s.clearAll);
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
+  const toggleCollapsed = useChatStore((s) => s.toggleCollapsed);
+  const setSettingsOpen = useChatStore((s) => s.setSettingsOpen);
   const streaming = useChatStore((s) => s.streaming);
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter((c) => c.title.toLowerCase().includes(q));
+  }, [conversations, query]);
+
+  const groups = useMemo(() => {
+    const map = new Map<string, typeof filtered>();
+    for (const c of filtered) {
+      const key = groupConversations(c.updatedAt);
+      const list = map.get(key) ?? [];
+      list.push(c);
+      map.set(key, list);
+    }
+    return [...map.entries()];
+  }, [filtered]);
 
   const panel = (
     <aside
       className={cn(
-        "nx-solid flex h-full w-sidebar shrink-0 flex-col border-r border-border",
-        "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:shadow-2xl",
+        "flex h-full shrink-0 flex-col border-r border-border bg-elevated",
+        "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:w-sidebar max-md:shadow-[var(--shadow-soft)]",
         "max-md:transition-transform max-md:duration-[250ms] max-md:ease-[cubic-bezier(0.22,1,0.36,1)]",
         sidebarOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full",
+        collapsed ? "md:w-rail" : "md:w-sidebar",
       )}
     >
-      <div className="flex items-center justify-between gap-2 px-4 pt-5 pb-3">
-        <div className="flex items-center gap-2.5 text-fg">
-          <Logo className="size-7 text-accent" />
-          <div>
+      <div className={cn("flex items-center gap-2 px-3 pt-4 pb-3", collapsed && "md:justify-center md:px-2")}>
+        <div className={cn("flex min-w-0 flex-1 items-center gap-2.5 text-fg", collapsed && "md:hidden")}>
+          <Logo className="size-6 shrink-0" />
+          <div className="min-w-0">
             <div className="text-sm font-semibold tracking-tight">Nexvon</div>
-            <div className="text-[11px] tracking-[0.16em] text-faint uppercase">AI</div>
+            <div className="text-2xs text-faint">AI companion</div>
           </div>
         </div>
+        <Tooltip content={collapsed ? "Expand sidebar" : "Collapse sidebar"} side="right">
+          <Button
+            variant="icon"
+            size="icon"
+            className="hidden size-9 md:grid"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={toggleCollapsed}
+          >
+            {collapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
+          </Button>
+        </Tooltip>
         <Button
           variant="icon"
-          className="md:hidden size-11"
+          size="icon"
+          className="size-10 md:hidden"
           aria-label="Close conversations"
           onClick={() => setSidebarOpen(false)}
         >
@@ -224,88 +86,150 @@ export function Sidebar() {
         </Button>
       </div>
 
-      <div className="px-3 pb-3">
-        <Button
-          variant="primary"
-          className="w-full rounded-md"
-          onClick={newChat}
-          disabled={streaming}
-        >
+      <div className={cn("px-3 pb-3", collapsed && "md:px-2")}>
+        {collapsed ? (
+          <Tooltip content="New chat" side="right">
+            <Button
+              variant="primary"
+              size="icon"
+              className="hidden size-10 w-full md:grid"
+              onClick={newChat}
+              disabled={streaming}
+              aria-label="New chat"
+            >
+              <Plus className="size-4" />
+            </Button>
+          </Tooltip>
+        ) : (
+          <Button variant="primary" className="w-full max-md:hidden" onClick={newChat} disabled={streaming}>
+            <Plus className="size-4" />
+            New chat
+          </Button>
+        )}
+        <Button variant="primary" className="w-full md:hidden" onClick={newChat} disabled={streaming}>
           <Plus className="size-4" />
           New chat
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {conversations.length === 0 ? (
-          <p className="px-3 py-6 text-sm text-faint">No conversations yet.</p>
-        ) : (
-          <ul className="flex flex-col gap-0.5">
-            {conversations.map((c) => {
+      <div className={cn("px-3 pb-2", collapsed && "md:hidden")}>
+        <label className="sr-only" htmlFor="nexvon-search">
+          Search conversations
+        </label>
+        <div className="flex items-center gap-2 rounded-md border border-border bg-bg px-2.5">
+          <Search className="size-3.5 shrink-0 text-faint" />
+          <input
+            id="nexvon-search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search"
+            className="h-9 w-full bg-transparent text-sm text-fg outline-none placeholder:text-faint"
+          />
+        </div>
+      </div>
+
+      <div className={cn("min-h-0 flex-1 overflow-y-auto px-2 pb-2", collapsed && "md:px-1.5")}>
+        {filtered.length === 0 ? (
+          <p className={cn("px-3 py-6 text-sm text-faint", collapsed && "md:hidden")}>
+            {query ? "No matching chats." : "No conversations yet."}
+          </p>
+        ) : collapsed ? (
+          <ul className="hidden flex-col items-center gap-1 md:flex">
+            {filtered.slice(0, 12).map((c) => {
               const active = c.id === activeId;
               return (
                 <li key={c.id}>
-                  <div
-                    className={cn(
-                      "group flex items-center gap-1 rounded-sm px-1 transition-colors duration-200",
-                      active ? "bg-fg/8" : "hover:bg-fg/5",
-                    )}
-                  >
+                  <Tooltip content={c.title} side="right">
                     <button
                       type="button"
                       onClick={() => selectChat(c.id)}
-                      className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2 text-left"
+                      className={cn(
+                        "grid size-10 place-items-center rounded-md text-xs font-semibold transition-colors",
+                        active ? "bg-fg/10 text-fg" : "text-muted hover:bg-fg/6 hover:text-fg",
+                      )}
+                      aria-label={c.title}
                     >
-                      <MessageSquare
-                        className={cn("size-4 shrink-0", active ? "text-accent" : "text-faint")}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span
-                          className={cn(
-                            "block truncate text-sm",
-                            active ? "text-fg" : "text-muted",
-                          )}
-                        >
-                          {c.title}
-                        </span>
-                        <span className="block text-[10px] text-faint">
-                          {relativeTime(c.updatedAt)}
-                        </span>
-                      </span>
+                      {c.title.slice(0, 1).toUpperCase()}
                     </button>
-                    <button
-                      type="button"
-                      aria-label={`Delete ${c.title}`}
-                      onClick={() => deleteChat(c.id)}
-                      className="grid size-10 shrink-0 place-items-center rounded-xs text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger max-md:opacity-100"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
+                  </Tooltip>
                 </li>
               );
             })}
           </ul>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {groups.map(([label, items]) => (
+              <div key={label}>
+                <p className="px-3 pb-1 text-2xs font-semibold tracking-wide text-faint uppercase">
+                  {label}
+                </p>
+                <ul className="flex flex-col gap-0.5">
+                  {items.map((c) => {
+                    const active = c.id === activeId;
+                    return (
+                      <li key={c.id}>
+                        <div
+                          className={cn(
+                            "group flex items-center gap-0.5 rounded-md px-1 transition-colors duration-150",
+                            active ? "bg-fg/8" : "hover:bg-fg/5",
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => selectChat(c.id)}
+                            className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2 text-left"
+                          >
+                            <MessageSquare
+                              className={cn("size-4 shrink-0", active ? "text-fg" : "text-faint")}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span
+                                className={cn(
+                                  "block truncate text-sm",
+                                  active ? "text-fg" : "text-muted",
+                                )}
+                              >
+                                {c.title}
+                              </span>
+                              <span className="block text-2xs text-faint">
+                                {relativeTime(c.updatedAt)}
+                              </span>
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Delete ${c.title}`}
+                            onClick={() => deleteChat(c.id)}
+                            className="grid size-9 shrink-0 place-items-center rounded-sm text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger max-md:opacity-100"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
-      {conversations.length > 0 ? (
-        <div className="border-t border-border px-3 py-2">
+      <div className={cn("border-t border-border p-2", collapsed && "md:flex md:justify-center")}>
+        <Tooltip content="Settings" side={collapsed ? "right" : "top"}>
           <button
             type="button"
-            onClick={() => {
-              if (window.confirm("Clear all conversations? This cannot be undone.")) {
-                clearAll();
-              }
-            }}
-            className="w-full rounded-md px-3 py-2 text-left text-xs text-faint transition-colors hover:bg-fg/5 hover:text-danger"
+            onClick={() => setSettingsOpen(true)}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted transition-colors hover:bg-fg/6 hover:text-fg",
+              collapsed && "md:w-10 md:justify-center md:px-0",
+            )}
           >
-            Clear all history
+            <Settings className="size-4 shrink-0" />
+            <span className={cn(collapsed && "md:hidden")}>Settings</span>
           </button>
-        </div>
-      ) : null}
-
-      <UserMenu />
+        </Tooltip>
+      </div>
     </aside>
   );
 
@@ -315,7 +239,7 @@ export function Sidebar() {
         <button
           type="button"
           aria-label="Close conversations"
-          className="fixed inset-0 z-30 bg-void/50 md:hidden"
+          className="fixed inset-0 z-30 bg-bg/50 md:hidden"
           style={{ animation: "overlayFade 200ms ease-out" }}
           onClick={() => setSidebarOpen(false)}
         />

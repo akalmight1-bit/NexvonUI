@@ -1,11 +1,10 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Instrument Serif", ui-serif, Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  --color-void: #000000;
   --color-bg: var(--bg);
   --color-elevated: var(--elevated);
   --color-surface: var(--surface);
@@ -15,64 +14,61 @@
   --color-border: var(--line);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
-  --color-glass: var(--glass);
-  --color-glass-strong: var(--glass-strong);
   --color-danger: var(--danger);
+  --color-canvas: var(--canvas);
 
   --radius-xs: 6px;
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --radius-xl: 28px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-2xl: 32px;
 
-  --width-sidebar: 17.5rem;
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+
+  --width-sidebar: 17rem;
+  --width-rail: 4.5rem;
 }
 
 :root {
-  --bg: #090b14;
-  --elevated: #0d0f1a;
-  --surface: #13151f;
-  --fg: #e8eaf0;
-  --muted: #9ca3af;
-  --faint: #6b7280;
-  --line: rgba(232, 234, 240, 0.1);
-  --accent: #7fdcff;
-  --accent-fg: #061018;
-  --glass: rgba(10, 12, 21, 0.52);
-  --glass-strong: rgba(10, 12, 21, 0.72);
-  --danger: #f87171;
+  --bg: #0c0c0e;
+  --canvas: #0c0c0e;
+  --elevated: #141417;
+  --surface: #1c1c21;
+  --fg: #f2f2f3;
+  --muted: #a3a3ab;
+  --faint: #6e6e76;
+  --line: rgba(242, 242, 243, 0.09);
+  --accent: #eceef2;
+  --accent-fg: #0c0c0e;
+  --danger: #ef6b6b;
   --shadow-border: 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --shadow-border-hover: 0 0 0 1px rgba(127, 220, 255, 0.28);
+  --shadow-soft: 0 16px 48px -24px rgba(0, 0, 0, 0.55);
 
   --motion-micro: 80ms;
   --motion-quick: 150ms;
   --motion-fast: 250ms;
   --motion-slow: 400ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-
-  /* Shared black-hole center — disk + sphere lock to the same point */
-  --bh-cx: 50%;
-  --bh-cy: 54%;
-  --bh-size: min(42vw, 380px);
 }
 
 html[data-theme="light"] {
-  --bg: #f4f5fb;
+  --bg: #f4f3f0;
+  --canvas: #f7f6f3;
   --elevated: #ffffff;
-  --surface: #eceef6;
-  --fg: #14151f;
-  --muted: #545a6b;
-  --faint: #838aa0;
-  --line: rgba(20, 21, 31, 0.1);
-  --accent: #1a6f8a;
-  --accent-fg: #f6fbff;
-  --glass: rgba(255, 255, 255, 0.62);
-  --glass-strong: rgba(255, 255, 255, 0.82);
-  --danger: #dc2626;
+  --surface: #ecebe7;
+  --fg: #17171a;
+  --muted: #5c5c66;
+  --faint: #8a8a94;
+  --line: rgba(23, 23, 26, 0.1);
+  --accent: #17171a;
+  --accent-fg: #f7f6f3;
+  --danger: #c23b3b;
   --shadow-border:
     0 0 0 1px rgba(0, 0, 0, 0.06),
     0 1px 2px -1px rgba(0, 0, 0, 0.06);
-  --shadow-border-hover: 0 0 0 1px rgba(26, 111, 138, 0.28);
+  --shadow-soft: 0 16px 40px -24px rgba(20, 16, 12, 0.18);
 }
 
 @layer base {
@@ -99,7 +95,7 @@ html[data-theme="light"] {
   }
   body {
     margin: 0;
-    background: #000;
+    background: var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
   }
@@ -116,171 +112,42 @@ html[data-theme="light"] {
   h3 {
     text-wrap: balance;
   }
+  p {
+    text-wrap: pretty;
+  }
 }
 
 ::-webkit-scrollbar {
-  width: 4px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--line);
-  border-radius: 4px;
+  border-radius: 8px;
 }
 
-/* ---------- Black hole CSS fallback (used until WebGL is live) ---------- */
-.bh-fallback {
-  position: absolute;
-  inset: 0;
-  transition: opacity 0.6s ease;
+.nx-canvas {
   background:
-    radial-gradient(circle at 18% 22%, rgba(180, 210, 255, 0.55) 0 1px, transparent 2px),
-    radial-gradient(circle at 72% 18%, rgba(255, 230, 200, 0.5) 0 1px, transparent 2px),
-    radial-gradient(circle at 82% 68%, rgba(180, 210, 255, 0.4) 0 1px, transparent 2px),
-    radial-gradient(circle at 30% 78%, rgba(255, 255, 255, 0.35) 0 1px, transparent 2px),
-    radial-gradient(circle at 60% 8%, rgba(220, 230, 255, 0.35) 0 1px, transparent 2px),
-    radial-gradient(ellipse 90% 70% at 50% 50%, #07070c, #000);
+    radial-gradient(920px 480px at 78% -8%, color-mix(in oklab, var(--fg) 6%, transparent), transparent 60%),
+    var(--canvas);
 }
 
-/* Hide static fallback once the live canvas is ready — prevents double bubble */
-.bh-canvas.is-live ~ .bh-scanlines,
-.bh-fallback.is-dimmed {
-  /* scanlines stay; fallback dimmed via class from engine */
-}
-.bh-fallback.is-dimmed {
-  opacity: 0;
-  pointer-events: none;
+.nx-composer-fade {
+  background: linear-gradient(to top, var(--canvas) 55%, transparent);
 }
 
-/* Accretion disk — same center as the sphere */
-.bh-fallback::before {
-  content: "";
-  position: absolute;
-  left: var(--bh-cx);
-  top: var(--bh-cy);
-  width: min(110vw, 1100px);
-  height: min(32vw, 280px);
-  transform: translate(-50%, -50%) rotate(-14deg);
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(80, 140, 255, 0.12) 12%,
-    rgba(255, 176, 90, 0.4) 28%,
-    rgba(255, 100, 30, 0.95) 42%,
-    rgba(255, 220, 160, 1) 49.2%,
-    #050304 50%,
-    rgba(255, 80, 25, 0.95) 50.8%,
-    rgba(255, 150, 70, 0.55) 62%,
-    rgba(40, 20, 12, 0.12) 82%,
-    transparent 100%
-  );
-  filter: blur(5px);
-  border-radius: 50%;
-  box-shadow:
-    0 0 60px 10px rgba(255, 120, 40, 0.15),
-    0 0 120px 20px rgba(255, 80, 20, 0.08);
+.nx-composer-wrap {
+  padding-bottom: max(3.5rem, calc(env(safe-area-inset-bottom) + 2.75rem));
 }
 
-/* Event-horizon sphere (the “bubble”) — perfect circle, shared center */
-.bh-fallback::after {
-  content: "";
-  position: absolute;
-  left: var(--bh-cx);
-  top: var(--bh-cy);
-  width: var(--bh-size);
-  height: var(--bh-size);
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background:
-    /* solid black core */
-    radial-gradient(
-      circle at 50% 50%,
-      #000 0%,
-      #000 46%,
-      transparent 47%
-    ),
-    /* photon ring */
-    radial-gradient(
-      circle at 50% 50%,
-      transparent 47%,
-      rgba(255, 200, 120, 0.95) 49%,
-      rgba(255, 140, 50, 0.55) 51%,
-      transparent 53%
-    );
-  box-shadow:
-    0 0 40px 8px rgba(255, 130, 40, 0.2),
-    inset 0 0 40px 10px rgba(0, 0, 0, 0.9);
-}
-
-.bh-canvas {
-  opacity: 0;
-  transition: opacity 0.85s ease;
-}
-.bh-canvas.is-live {
-  opacity: 1;
-}
-
-.bh-scanlines {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    repeating-linear-gradient(
-      0deg,
-      rgba(255, 255, 255, 0.018) 0px,
-      rgba(255, 255, 255, 0.018) 1px,
-      transparent 1px,
-      transparent 3px
-    ),
-    radial-gradient(ellipse at center, transparent 0%, transparent 52%, rgba(0, 0, 0, 0.55) 100%);
-  mix-blend-mode: screen;
-  opacity: 0.28;
-}
-html[data-theme="light"] .bh-scanlines {
-  opacity: 0.18;
-  mix-blend-mode: multiply;
-}
-
-.nx-glass {
-  background: var(--glass);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-  box-shadow: var(--shadow-border);
-}
-
-/* Same look as .nx-glass but no backdrop-filter — for large,
-   persistently-visible panels (e.g. the sidebar) sitting above the
-   animated canvas. backdrop-filter re-blurs everything behind it on
-   every canvas repaint; over a big region that's a frame-rate killer.
-   A solid tinted background reads almost identically at rest. */
-.nx-solid {
-  background: var(--glass-strong);
-  box-shadow: var(--shadow-border);
-}
-
-.nx-glass-strong {
-  background: var(--glass-strong);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
-  box-shadow: var(--shadow-border);
-}
-
-@keyframes msgSlide {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
 @keyframes fadeUp {
   from {
     opacity: 0;
-    transform: translateY(16px);
-    filter: blur(4px);
+    transform: translateY(10px);
+    filter: blur(3px);
   }
   to {
     opacity: 1;
@@ -288,26 +155,14 @@ html[data-theme="light"] .bh-scanlines {
     filter: blur(0);
   }
 }
-@keyframes typingBounce {
-  0%,
-  60%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.4;
-  }
-  30% {
-    transform: translateY(-5px);
-    opacity: 1;
-  }
-}
-@keyframes chipPop {
+@keyframes msgIn {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.96);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 @keyframes overlayFade {
@@ -318,35 +173,39 @@ html[data-theme="light"] .bh-scanlines {
     opacity: 1;
   }
 }
-@keyframes panelIn {
-  from {
-    opacity: 0;
-    transform: translateX(-12px);
-  }
-  to {
+@keyframes caret {
+  0%,
+  45% {
     opacity: 1;
-    transform: translateX(0);
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes typingBounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
   }
 }
 
-.anim-msg {
-  animation: msgSlide var(--motion-fast) var(--ease-out) both;
-}
 .anim-fade {
   animation: fadeUp var(--motion-slow) var(--ease-out) both;
 }
-.anim-chip {
-  animation: chipPop var(--motion-fast) var(--ease-out) both;
+.anim-msg {
+  animation: msgIn var(--motion-fast) var(--ease-out) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .anim-msg,
   .anim-fade,
-  .anim-chip,
-  .bh-scanlines {
+  .anim-msg {
     animation: none !important;
-  }
-  .bh-scanlines {
-    opacity: 0.25;
   }
 }
