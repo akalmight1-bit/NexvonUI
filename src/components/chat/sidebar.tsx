@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   HelpCircle,
   LogOut,
@@ -160,7 +160,7 @@ function MenuItem({
   danger,
   disabled,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   onClick: () => void;
   danger?: boolean;
