@@ -14,12 +14,14 @@ type ChatState = {
   conversations: Conversation[];
   activeId: string | null;
   sidebarOpen: boolean;
+  settingsOpen: boolean;
   theme: "dark" | "light";
   streaming: boolean;
   error: string | null;
   suggestions: string[];
   toast: string | null;
   setSidebarOpen: (open: boolean) => void;
+  setSettingsOpen: (open: boolean) => void;
   toggleTheme: () => void;
   newChat: () => void;
   selectChat: (id: string) => void;
@@ -40,7 +42,7 @@ type ChatState = {
 function emptyConversation(): Conversation {
   return {
     id: uid(),
-    title: "New orbit",
+    title: "New chat",
     messages: [],
     updatedAt: Date.now(),
   };
@@ -52,12 +54,14 @@ export const useChatStore = create<ChatState>()(
       conversations: [],
       activeId: null,
       sidebarOpen: false,
+      settingsOpen: false,
       theme: "dark",
       streaming: false,
       error: null,
       toast: null,
       suggestions: SUGGESTIONS,
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
+      setSettingsOpen: (open) => set({ settingsOpen: open }),
       toggleTheme: () =>
         set((s) => {
           const theme = s.theme === "dark" ? "light" : "dark";
@@ -174,7 +178,7 @@ export const useChatStore = create<ChatState>()(
         set((s) => ({
           conversations: s.conversations.map((c) => {
             if (c.id !== conversationId) return c;
-            if (c.title !== "New orbit") return c;
+            if (c.title !== "New chat" && c.title !== "New orbit") return c;
             const title = firstUser.replace(/\s+/g, " ").slice(0, 42);
             return { ...c, title: title || c.title };
           }),
