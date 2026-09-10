@@ -1,8 +1,8 @@
 # Nexvon
 
-**A cinematic AI companion** with a live Schwarzschild black hole behind the glass.
+**A clean, focused AI companion.**
 
-Nexvon is a polished, production-style chat interface powered by xAI. Conversations persist locally, stream in real time, and sit on a reactive WebGL / CSS black-hole backdrop.
+Nexvon is a polished, production-style chat interface powered by xAI. Conversations persist locally and stream in real time.
 
 ## Features
 
@@ -13,14 +13,12 @@ Nexvon is a polished, production-style chat interface powered by xAI. Conversati
 - Light / dark theme with system-friendly tokens
 - Local persistence (Zustand + localStorage)
 - Responsive mobile layout with glass sidebar
-- Live Schwarzschild visualization (WebGL with graceful CSS fallback)
 
 ## Stack
 
 - React 19 + TanStack Start / Router
 - Tailwind CSS v4 + custom design tokens
 - Zustand (persisted chat state)
-- Three.js / custom WebGL for the black-hole field
 - xAI Chat Completions API
 
 ## Getting started
@@ -43,7 +41,7 @@ The app expects `XAI_API_KEY` in the environment for live replies. Without it, t
 
 ## Design notes
 
-Nexvon aims to feel like a finished product rather than a demo: intentional motion, glass surfaces, micro-feedback on copy, and a calm empty state that still feels alive.
+Nexvon aims to feel like a finished product rather than a demo: intentional motion, glass surfaces, micro-feedback on copy, and a calm empty state.
 
 ---
 
