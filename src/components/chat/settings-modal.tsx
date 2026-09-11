@@ -3,6 +3,7 @@ import { Moon, Sun, Trash2 } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { useChatStore } from "@/lib/chat/store";
 import { cn } from "@/lib/utils";
+import { ProviderSelect } from "./provider-select";
 
 export function SettingsModal() {
   const open = useChatStore((s) => s.settingsOpen);
@@ -14,6 +15,16 @@ export function SettingsModal() {
 
   return (
     <Dialog open={open} onOpenChange={setSettingsOpen} title="Settings">
+      <Section title="Model">
+        <div className="rounded-lg border border-border px-3.5 py-3">
+          <p className="text-sm font-medium text-fg">Provider</p>
+          <p className="mt-0.5 mb-2.5 text-xs text-faint">
+            Nexvon is not locked to Grok. Set any OpenAI-compatible API key on the server, then pick it here.
+          </p>
+          <ProviderSelect />
+        </div>
+      </Section>
+
       <Section title="Appearance">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3.5 py-3">
           <div>
