@@ -1,4 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
+import {
+  hasAnyProviderConfigured,
+  orderProviders,
+  publicProviderList,
+  type ProviderConfig,
+} from "@/lib/providers.server";
 import { formatSearchResults, isSearchConfigured, serperSearch } from "@/lib/search.server";
 
 const SYSTEM = `You are Nexvon, a thoughtful AI companion. Be clear, warm, and direct — no fluff, no emoji, no filler praise. Help with thinking, writing, code, science, and decisions. Use markdown when it helps: headings, lists, and fenced code. Be concise unless the user wants depth. Sound like a sharp friend, not a corporate assistant. When you have a search tool available, use it for anything that depends on current or fast-changing information instead of guessing.`;
@@ -14,6 +20,7 @@ type IncomingMessage = {
 
 type Incoming = {
   messages?: IncomingMessage[];
+  provider?: string;
 };
 
 type ApiMessage = {
@@ -71,6 +78,14 @@ function sanitizeContent(content: unknown): string | Array<Record<string, unknow
   return parts.length > 0 ? parts : null;
 }
 
+function sanitizeProvider(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const id = value.trim().toLowerCase();
+  if (!id || id === "auto") return undefined;
+  if (!/^[a-z][a-z0-9_-]{0,31}$/.test(id)) return undefined;
+  return id;
+}
+
 /**
  * Tools available to the model. Gated on their own env var so an unconfigured
  * tool just doesn't show up — chat still works with zero tools.
@@ -116,75 +131,24 @@ async function runTool(name: string, argsJson: string): Promise<string> {
   return `Unknown tool: ${name}`;
 }
 
-type ProviderConfig = { name: string; apiKey: string; baseUrl: string; model: string };
-
-/**
- * Ordered fallback chain. Each provider is enabled by having its API key set.
- * Tries them in order on network errors / non-2xx / non-streaming responses;
- * first one that returns an ok streaming response wins for that round.
- *
- * Env vars (all optional per-provider; unset key = provider skipped):
- *   NIM_API_KEY,        NIM_BASE_URL        (default https://integrate.api.nvidia.com/v1), NIM_MODEL
- *   XAI_API_KEY,        XAI_BASE_URL        (default https://api.x.ai/v1),                  XAI_MODEL
- *   OPENROUTER_API_KEY, OPENROUTER_BASE_URL (default https://openrouter.ai/api/v1),          OPENROUTER_MODEL
- *   CHAT_API_KEY,       CHAT_API_BASE_URL   (default https://api.openai.com/v1),             CHAT_MODEL
- *     (CHAT_* is kept as a generic/legacy slot — put it last, or reuse it as your primary.)
- */
-function buildProviderChain(): ProviderConfig[] {
-  const candidates: ProviderConfig[] = [
-    {
-      name: "nim",
-      apiKey: process.env.NIM_API_KEY?.trim() ?? "",
-      baseUrl: (process.env.NIM_BASE_URL?.trim() || "https://integrate.api.nvidia.com/v1").replace(
-        /\/+$/,
-        "",
-      ),
-      model: process.env.NIM_MODEL?.trim() || "meta/llama-3.1-70b-instruct",
-    },
-    {
-      name: "xai",
-      apiKey: process.env.XAI_API_KEY?.trim() ?? "",
-      baseUrl: (process.env.XAI_BASE_URL?.trim() || "https://api.x.ai/v1").replace(/\/+$/, ""),
-      model: process.env.XAI_MODEL?.trim() || "grok-beta",
-    },
-    {
-      name: "openrouter",
-      apiKey: process.env.OPENROUTER_API_KEY?.trim() ?? "",
-      baseUrl: (process.env.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1").replace(
-        /\/+$/,
-        "",
-      ),
-      model: process.env.OPENROUTER_MODEL?.trim() || "openai/gpt-4o-mini",
-    },
-    {
-      name: "chat",
-      apiKey: process.env.CHAT_API_KEY?.trim() ?? "",
-      baseUrl: (process.env.CHAT_API_BASE_URL?.trim() || "https://api.openai.com/v1").replace(
-        /\/+$/,
-        "",
-      ),
-      model: process.env.CHAT_MODEL?.trim() || "gpt-4o-mini",
-    },
-  ];
-  return candidates.filter((c) => c.apiKey.length > 0);
-}
-
-function hasAnyProviderConfigured(): boolean {
-  return buildProviderChain().length > 0;
-}
-
 async function fetchProvider(
   provider: ProviderConfig,
   messages: ApiMessage[],
   tools: ToolDef[],
   allowTools: boolean,
 ) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${provider.apiKey}`,
+  };
+  if (provider.name === "openrouter") {
+    headers["HTTP-Referer"] = "https://github.com/akalmight1-bit/NexvonUI";
+    headers["X-Title"] = "Nexvon";
+  }
+
   return fetch(`${provider.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${provider.apiKey}`,
-    },
+    headers,
     body: JSON.stringify({
       model: provider.model,
       stream: true,
@@ -197,12 +161,16 @@ async function fetchProvider(
 }
 
 /**
- * Tries each configured provider in order, returning the first ok streaming
- * response. Throws with details on every provider tried if all fail — a
- * fetch-level exception (network/DNS) on one provider just moves to the next.
+ * Tries each provider in the ordered chain. Auto mode walks every configured
+ * backend; a specific pick uses that backend only.
  */
-async function callUpstream(messages: ApiMessage[], tools: ToolDef[], allowTools: boolean) {
-  const chain = buildProviderChain();
+async function callUpstream(
+  messages: ApiMessage[],
+  tools: ToolDef[],
+  allowTools: boolean,
+  preferred?: string,
+) {
+  const chain = orderProviders(preferred);
   if (chain.length === 0) {
     throw new Error("No chat provider is configured.");
   }
@@ -210,7 +178,7 @@ async function callUpstream(messages: ApiMessage[], tools: ToolDef[], allowTools
   for (const provider of chain) {
     try {
       const res = await fetchProvider(provider, messages, tools, allowTools);
-      if (res.ok && res.body) return res;
+      if (res.ok && res.body) return { res, provider };
       let detail = `HTTP ${res.status}`;
       try {
         const j = (await res.json()) as { error?: { message?: string } };
@@ -218,9 +186,9 @@ async function callUpstream(messages: ApiMessage[], tools: ToolDef[], allowTools
       } catch {
         /* ignore */
       }
-      failures.push(`${provider.name}: ${detail}`);
+      failures.push(`${provider.label}: ${detail}`);
     } catch (err) {
-      failures.push(`${provider.name}: ${err instanceof Error ? err.message : "network error"}`);
+      failures.push(`${provider.label}: ${err instanceof Error ? err.message : "network error"}`);
     }
   }
   throw new Error(`All providers failed — ${failures.join("; ")}`);
@@ -229,6 +197,12 @@ async function callUpstream(messages: ApiMessage[], tools: ToolDef[], allowTools
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
+      GET: async () => {
+        return Response.json({
+          providers: publicProviderList(),
+          search: isSearchConfigured(),
+        });
+      },
       POST: async ({ request }) => {
         if (!hasAnyProviderConfigured()) {
           return Response.json(
@@ -244,6 +218,7 @@ export const Route = createFileRoute("/api/chat")({
           return Response.json({ error: "Invalid request." }, { status: 400 });
         }
 
+        const preferred = sanitizeProvider(body.provider);
         const raw = Array.isArray(body.messages) ? body.messages : [];
         const messages: ApiMessage[] = raw
           .filter((m) => m.role === "user" || m.role === "assistant")
@@ -267,12 +242,19 @@ export const Route = createFileRoute("/api/chat")({
               for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
                 const isLastRound = round === MAX_TOOL_ROUNDS - 1;
                 let upstream: Response;
+                let active: ProviderConfig;
                 try {
-                  upstream = await callUpstream(conversation, tools, !isLastRound);
+                  const result = await callUpstream(conversation, tools, !isLastRound, preferred);
+                  upstream = result.res;
+                  active = result.provider;
                 } catch (err) {
                   send({ error: err instanceof Error ? err.message : "All providers failed." });
                   controller.close();
                   return;
+                }
+
+                if (round === 0) {
+                  send({ provider: active.name, status: `Using ${active.label}` });
                 }
 
                 const reader = upstream.body!.getReader();
@@ -334,13 +316,11 @@ export const Route = createFileRoute("/api/chat")({
                 }
 
                 if (pendingCalls.size === 0) {
-                  // Plain answer — nothing more to do.
                   send({ done: true });
                   controller.close();
                   return;
                 }
 
-                // Model wants to call tools. Run them, append results, loop.
                 const calls = [...pendingCalls.values()];
                 for (const c of calls) {
                   if (c.name === "web_search") {
@@ -367,12 +347,9 @@ export const Route = createFileRoute("/api/chat")({
                   const result = await runTool(c.name, c.args);
                   conversation.push({ role: "tool", tool_call_id: c.id, content: result });
                 }
-                // finishReason "tool_calls" expected here; loop continues to next round.
                 void finishReason;
               }
 
-              // Exhausted rounds without a plain answer — shouldn't normally happen
-              // since the last round is forced tool-free, but fail safe.
               send({ error: "Nexvon couldn't finish that response." });
               controller.close();
             } catch (err) {
