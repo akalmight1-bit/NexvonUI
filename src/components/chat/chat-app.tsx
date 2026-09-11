@@ -12,6 +12,7 @@ import { MessageList } from "./message-list";
 import { Composer } from "./composer";
 import { Logo } from "./logo";
 import { SettingsModal } from "./settings-modal";
+import { ProviderSelect } from "./provider-select";
 
 export function ChatApp() {
   const conversations = useChatStore((s) => s.conversations);
@@ -19,6 +20,7 @@ export function ChatApp() {
   const streaming = useChatStore((s) => s.streaming);
   const error = useChatStore((s) => s.error);
   const theme = useChatStore((s) => s.theme);
+  const preferredProvider = useChatStore((s) => s.preferredProvider);
   const pushUser = useChatStore((s) => s.pushUser);
   const beginAssistant = useChatStore((s) => s.beginAssistant);
   const appendAssistant = useChatStore((s) => s.appendAssistant);
@@ -83,6 +85,7 @@ export function ChatApp() {
     try {
       await streamChat(history, {
         signal: ac.signal,
+        provider: preferredProvider,
         onDelta: (chunk) => {
           wrote = true;
           appendAssistant(conversationId, assistantId, chunk);
@@ -177,7 +180,8 @@ export function ChatApp() {
                 </div>
               ) : null}
             </div>
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1.5">
+              <ProviderSelect compact className="hidden sm:block" />
               <Tooltip content="New chat · ⌘N">
                 <Button
                   variant="icon"
