@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { uid } from "@/lib/utils";
-import type { ChatMessage, Conversation } from "./types";
+import type { Attachment, ChatMessage, Conversation } from "./types";
 
 const SUGGESTIONS = [
   "How does gravitational lensing work?",
@@ -20,15 +20,21 @@ type ChatState = {
   error: string | null;
   suggestions: string[];
   toast: string | null;
+  preferredProvider: string;
   setSidebarOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
+  setPreferredProvider: (id: string) => void;
   toggleTheme: () => void;
   newChat: () => void;
   selectChat: (id: string) => void;
   deleteChat: (id: string) => void;
+  renameChat: (id: string, title: string) => void;
   clearAll: () => void;
   active: () => Conversation | undefined;
-  pushUser: (content: string) => { conversationId: string; messages: ChatMessage[] };
+  pushUser: (
+    content: string,
+    attachments?: Attachment[],
+  ) => { conversationId: string; messages: ChatMessage[] };
   beginAssistant: (conversationId: string) => string;
   appendAssistant: (conversationId: string, messageId: string, chunk: string) => void;
   removeLastAssistant: (conversationId: string) => ChatMessage[] | null;
@@ -60,8 +66,10 @@ export const useChatStore = create<ChatState>()(
       error: null,
       toast: null,
       suggestions: SUGGESTIONS,
+      preferredProvider: "auto",
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       setSettingsOpen: (open) => set({ settingsOpen: open }),
+      setPreferredProvider: (id) => set({ preferredProvider: id || "auto" }),
       toggleTheme: () =>
         set((s) => {
           const theme = s.theme === "dark" ? "light" : "dark";
@@ -87,6 +95,12 @@ export const useChatStore = create<ChatState>()(
             s.activeId === id ? (conversations[0]?.id ?? null) : s.activeId;
           return { conversations, activeId };
         }),
+      renameChat: (id, title) => {
+        const next = title.trim().slice(0, 80) || "New chat";
+        set((s) => ({
+          conversations: s.conversations.map((c) => (c.id === id ? { ...c, title: next } : c)),
+        }));
+      },
       clearAll: () =>
         set({
           conversations: [],
@@ -95,8 +109,9 @@ export const useChatStore = create<ChatState>()(
           sidebarOpen: false,
         }),
       active: () => get().conversations.find((c) => c.id === get().activeId),
-      pushUser: (content) => {
+      pushUser: (content, attachments) => {
         const trimmed = content.trim();
+        const files = (attachments ?? []).slice(0, 6);
         let { conversations, activeId } = get();
         let convo = conversations.find((c) => c.id === activeId);
         if (!convo) {
@@ -109,6 +124,7 @@ export const useChatStore = create<ChatState>()(
           role: "user",
           content: trimmed,
           createdAt: Date.now(),
+          attachments: files.length > 0 ? files : undefined,
         };
         const next: Conversation = {
           ...convo,
@@ -191,6 +207,7 @@ export const useChatStore = create<ChatState>()(
         conversations: s.conversations,
         activeId: s.activeId,
         theme: s.theme,
+        preferredProvider: s.preferredProvider,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
