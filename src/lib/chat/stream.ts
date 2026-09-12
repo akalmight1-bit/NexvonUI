@@ -1,3 +1,7 @@
+import { retrieve, type RagDoc } from "@/lib/rag/bm25";
+import type { ChatMessage, KnowledgeDoc, ServiceStatus } from "./types";
+import { toApiMessages } from "./payload";
+
 export type PublicProvider = {
   id: string;
   label: string;
@@ -9,37 +13,72 @@ export type StreamHandlers = {
   onStatus?: (status: string) => void;
   signal?: AbortSignal;
   provider?: string;
+  knowledge?: KnowledgeDoc[];
 };
 
-/** Same-origin `/api/chat`, or `VITE_API_URL` if the UI is split from the API. */
 function chatEndpoint() {
-  const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
-  if (base) return `${base}/v1/chat`;
   return "/api/chat";
 }
 
-export async function listChatProviders(): Promise<PublicProvider[]> {
+export async function getServiceStatus(): Promise<ServiceStatus> {
+  const empty: ServiceStatus = {
+    providers: [],
+    search: { enabled: false, engines: [] },
+    files: true,
+    rag: true,
+    backend: { configured: false, connected: false },
+  };
   try {
     const res = await fetch(chatEndpoint(), { method: "GET" });
-    if (!res.ok) return [];
-    const body = (await res.json()) as { providers?: PublicProvider[] };
-    return Array.isArray(body.providers) ? body.providers : [];
+    if (!res.ok) return empty;
+    const body = (await res.json()) as Partial<ServiceStatus> & { providers?: PublicProvider[] };
+    return {
+      providers: Array.isArray(body.providers) ? body.providers : [],
+      search: body.search ?? empty.search,
+      files: body.files !== false,
+      rag: body.rag !== false,
+      backend: body.backend ?? empty.backend,
+    };
   } catch {
-    return [];
+    return empty;
   }
 }
 
-export async function streamChat(
-  messages: { role: "user" | "assistant"; content: string }[],
-  handlers: StreamHandlers,
-) {
+export async function listChatProviders(): Promise<PublicProvider[]> {
+  const status = await getServiceStatus();
+  return status.providers;
+}
+
+function knowledgeHits(query: string, docs: KnowledgeDoc[]): RagDoc[] {
+  const corpus: RagDoc[] = [];
+  for (const doc of docs) {
+    const pieces = doc.chunks.length > 0 ? doc.chunks : [doc.text];
+    pieces.forEach((text, i) => {
+      corpus.push({
+        id: `${doc.id}:${i}`,
+        title: doc.name,
+        text,
+      });
+    });
+  }
+  return retrieve(query, corpus, 6);
+}
+
+export async function streamChat(messages: ChatMessage[], handlers: StreamHandlers) {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const query = lastUser?.content || "";
+  const knowledge = handlers.knowledge?.length
+    ? knowledgeHits(query, handlers.knowledge).map((d) => ({ title: d.title, text: d.text }))
+    : [];
+
   const res = await fetch(chatEndpoint(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      messages,
+      messages: toApiMessages(messages),
       stream: true,
       provider: handlers.provider && handlers.provider !== "auto" ? handlers.provider : undefined,
+      knowledge,
     }),
     signal: handlers.signal,
   });

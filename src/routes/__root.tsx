@@ -5,7 +5,7 @@ import appCss from "../styles.css?url";
 
 const APP_NAME = "Nexvon AI";
 
-const THEME_BOOT = `try{var r=localStorage.getItem("nexvon.chat.v1");if(r){var t=JSON.parse(r);if(t&&t.state&&t.state.theme==="light")document.documentElement.dataset.theme="light"}}catch(e){}`;
+const THEME_BOOT = `try{var r=localStorage.getItem("nexvon.chat.v2");if(r){var t=JSON.parse(r);if(t&&t.state&&t.state.theme==="light")document.documentElement.dataset.theme="light"}}catch(e){}`;
 
 export const Route = createRootRoute({
   head: () => ({
@@ -13,11 +13,10 @@ export const Route = createRootRoute({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: APP_NAME },
-      { name: "theme-color", content: "#090b14" },
+      { name: "theme-color", content: "#0c0c0e" },
       {
         name: "description",
-        content:
-          "Nexvon — a cinematic AI companion with a live Schwarzschild black hole behind the glass.",
+        content: "Nexvon — a focused AI companion with live search, files, and a private knowledge library.",
       },
     ],
     links: [
@@ -29,7 +28,7 @@ export const Route = createRootRoute({
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Outfit:wght@400;500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap",
       },
     ],
   }),

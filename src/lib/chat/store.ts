@@ -1,27 +1,51 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { uid } from "@/lib/utils";
-import type { Attachment, ChatMessage, Conversation } from "./types";
+import { chunkText } from "@/lib/rag/chunk";
+import type { Attachment, ChatMessage, Conversation, KnowledgeDoc, Suggestion } from "./types";
 
-const SUGGESTIONS = [
-  "How does gravitational lensing work?",
-  "Help me think through a hard decision",
-  "Write a short poem from the photon ring",
-  "Explain Schwarzschild spacetime simply",
+export const SUGGESTIONS: Suggestion[] = [
+  {
+    id: "decide",
+    title: "Think it through",
+    hint: "A hard decision, laid out clearly",
+    prompt: "Help me think through a hard decision I have been circling.",
+  },
+  {
+    id: "explain",
+    title: "Explain something",
+    hint: "Gravity, code, a paper — simply",
+    prompt: "Explain Schwarzschild spacetime simply.",
+  },
+  {
+    id: "draft",
+    title: "Write with me",
+    hint: "Email, essay, or a first draft",
+    prompt: "Help me draft a clear, concise message.",
+  },
+  {
+    id: "holes",
+    title: "What's current",
+    hint: "News, prices, anything time-sensitive",
+    prompt: "What are the latest developments in gravitational-wave astronomy this year?",
+  },
 ];
 
 type ChatState = {
   conversations: Conversation[];
   activeId: string | null;
   sidebarOpen: boolean;
+  sidebarCollapsed: boolean;
   settingsOpen: boolean;
   theme: "dark" | "light";
   streaming: boolean;
   error: string | null;
-  suggestions: string[];
+  suggestions: Suggestion[];
   toast: string | null;
   preferredProvider: string;
+  knowledge: KnowledgeDoc[];
   setSidebarOpen: (open: boolean) => void;
+  toggleCollapsed: () => void;
   setSettingsOpen: (open: boolean) => void;
   setPreferredProvider: (id: string) => void;
   toggleTheme: () => void;
@@ -43,6 +67,9 @@ type ChatState = {
   showToast: (msg: string) => void;
   clearToast: () => void;
   renameIfNeeded: (conversationId: string, firstUser: string) => void;
+  addKnowledge: (doc: Omit<KnowledgeDoc, "id" | "createdAt" | "chunks"> & { chunks?: string[] }) => KnowledgeDoc;
+  removeKnowledge: (id: string) => void;
+  clearKnowledge: () => void;
 };
 
 function emptyConversation(): Conversation {
@@ -60,6 +87,7 @@ export const useChatStore = create<ChatState>()(
       conversations: [],
       activeId: null,
       sidebarOpen: false,
+      sidebarCollapsed: false,
       settingsOpen: false,
       theme: "dark",
       streaming: false,
@@ -67,7 +95,9 @@ export const useChatStore = create<ChatState>()(
       toast: null,
       suggestions: SUGGESTIONS,
       preferredProvider: "auto",
+      knowledge: [],
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
+      toggleCollapsed: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSettingsOpen: (open) => set({ settingsOpen: open }),
       setPreferredProvider: (id) => set({ preferredProvider: id || "auto" }),
       toggleTheme: () =>
@@ -91,8 +121,7 @@ export const useChatStore = create<ChatState>()(
       deleteChat: (id) =>
         set((s) => {
           const conversations = s.conversations.filter((c) => c.id !== id);
-          const activeId =
-            s.activeId === id ? (conversations[0]?.id ?? null) : s.activeId;
+          const activeId = s.activeId === id ? (conversations[0]?.id ?? null) : s.activeId;
           return { conversations, activeId };
         }),
       renameChat: (id, title) => {
@@ -179,9 +208,7 @@ export const useChatStore = create<ChatState>()(
         const messages = convo.messages.slice(0, -1);
         set((s) => ({
           conversations: s.conversations.map((c) =>
-            c.id === conversationId
-              ? { ...c, messages, updatedAt: Date.now() }
-              : c,
+            c.id === conversationId ? { ...c, messages, updatedAt: Date.now() } : c,
           ),
         }));
         return messages;
@@ -200,14 +227,40 @@ export const useChatStore = create<ChatState>()(
           }),
         }));
       },
+      addKnowledge: (doc) => {
+        const text = doc.text.slice(0, 200_000);
+        const item: KnowledgeDoc = {
+          id: uid(),
+          name: doc.name.slice(0, 120),
+          mimeType: doc.mimeType,
+          text,
+          chunks: doc.chunks?.length ? doc.chunks : chunkText(text),
+          createdAt: Date.now(),
+          size: doc.size,
+        };
+        set((s) => ({ knowledge: [item, ...s.knowledge].slice(0, 40) }));
+        return item;
+      },
+      removeKnowledge: (id) => set((s) => ({ knowledge: s.knowledge.filter((d) => d.id !== id) })),
+      clearKnowledge: () => set({ knowledge: [] }),
     }),
     {
-      name: "nexvon.chat.v1",
+      name: "nexvon.chat.v2",
       partialize: (s) => ({
-        conversations: s.conversations,
+        conversations: s.conversations.map((c) => ({
+          ...c,
+          messages: c.messages.map((m) => ({
+            ...m,
+            attachments: m.attachments?.map((a) =>
+              a.kind === "image" ? { ...a, dataUrl: undefined } : a,
+            ),
+          })),
+        })),
         activeId: s.activeId,
         theme: s.theme,
         preferredProvider: s.preferredProvider,
+        sidebarCollapsed: s.sidebarCollapsed,
+        knowledge: s.knowledge,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

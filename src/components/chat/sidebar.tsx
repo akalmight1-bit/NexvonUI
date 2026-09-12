@@ -123,7 +123,7 @@ export function Sidebar() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search"
-            className="h-9 w-full bg-transparent text-sm text-fg outline-none placeholder:text-faint"
+            className="h-11 w-full bg-transparent text-sm text-fg outline-none placeholder:text-faint md:h-9"
           />
         </div>
       </div>
@@ -160,9 +160,7 @@ export function Sidebar() {
           <div className="flex flex-col gap-4">
             {groups.map(([label, items]) => (
               <div key={label}>
-                <p className="px-3 pb-1 text-2xs font-semibold tracking-wide text-faint uppercase">
-                  {label}
-                </p>
+                <p className="px-3 pb-1 text-2xs font-semibold tracking-wide text-faint uppercase">{label}</p>
                 <ul className="flex flex-col gap-0.5">
                   {items.map((c) => {
                     const active = c.id === activeId;
@@ -179,21 +177,12 @@ export function Sidebar() {
                             onClick={() => selectChat(c.id)}
                             className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2 text-left"
                           >
-                            <MessageSquare
-                              className={cn("size-4 shrink-0", active ? "text-fg" : "text-faint")}
-                            />
+                            <MessageSquare className={cn("size-4 shrink-0", active ? "text-fg" : "text-faint")} />
                             <span className="min-w-0 flex-1">
-                              <span
-                                className={cn(
-                                  "block truncate text-sm",
-                                  active ? "text-fg" : "text-muted",
-                                )}
-                              >
+                              <span className={cn("block truncate text-sm", active ? "text-fg" : "text-muted")}>
                                 {c.title}
                               </span>
-                              <span className="block text-2xs text-faint">
-                                {relativeTime(c.updatedAt)}
-                              </span>
+                              <span className="block text-2xs text-faint">{relativeTime(c.updatedAt)}</span>
                             </span>
                           </button>
                           <button

@@ -21,6 +21,7 @@ export function ChatApp() {
   const error = useChatStore((s) => s.error);
   const theme = useChatStore((s) => s.theme);
   const preferredProvider = useChatStore((s) => s.preferredProvider);
+  const knowledge = useChatStore((s) => s.knowledge);
   const pushUser = useChatStore((s) => s.pushUser);
   const beginAssistant = useChatStore((s) => s.beginAssistant);
   const appendAssistant = useChatStore((s) => s.appendAssistant);
@@ -86,10 +87,12 @@ export function ChatApp() {
       await streamChat(history, {
         signal: ac.signal,
         provider: preferredProvider,
+        knowledge,
         onDelta: (chunk) => {
           wrote = true;
           appendAssistant(conversationId, assistantId, chunk);
         },
+        onStatus: (status) => toast(status),
       });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -161,9 +164,7 @@ export function ChatApp() {
                         setEditingTitle(false);
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.currentTarget.blur();
-                        }
+                        if (e.key === "Enter") e.currentTarget.blur();
                         if (e.key === "Escape") setEditingTitle(false);
                       }}
                     />
@@ -203,16 +204,12 @@ export function ChatApp() {
                   <span className="relative grid size-5 place-items-center">
                     <Sun
                       className={`absolute size-5 transition-[opacity,transform,filter] duration-300 ${
-                        theme === "light"
-                          ? "scale-100 opacity-100 blur-0"
-                          : "scale-[0.25] opacity-0 blur-[4px]"
+                        theme === "light" ? "scale-100 opacity-100 blur-0" : "scale-[0.25] opacity-0 blur-[4px]"
                       }`}
                     />
                     <Moon
                       className={`size-5 transition-[opacity,transform,filter] duration-300 ${
-                        theme === "dark"
-                          ? "scale-100 opacity-100 blur-0"
-                          : "scale-[0.25] opacity-0 blur-[4px]"
+                        theme === "dark" ? "scale-100 opacity-100 blur-0" : "scale-[0.25] opacity-0 blur-[4px]"
                       }`}
                     />
                   </span>

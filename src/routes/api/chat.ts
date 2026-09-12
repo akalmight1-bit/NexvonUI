@@ -1,13 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { backendFetch, probeBackend } from "@/lib/backend.server";
 import {
   hasAnyProviderConfigured,
   orderProviders,
   publicProviderList,
   type ProviderConfig,
 } from "@/lib/providers.server";
-import { formatSearchResults, isSearchConfigured, serperSearch } from "@/lib/search.server";
+import {
+  configuredSearchEngines,
+  formatSearchResults,
+  isSearchConfigured,
+  webSearch,
+} from "@/lib/search.server";
 
-const SYSTEM = `You are Nexvon, a thoughtful AI companion. Be clear, warm, and direct — no fluff, no emoji, no filler praise. Help with thinking, writing, code, science, and decisions. Use markdown when it helps: headings, lists, and fenced code. Be concise unless the user wants depth. Sound like a sharp friend, not a corporate assistant. When you have a search tool available, use it for anything that depends on current or fast-changing information instead of guessing.`;
+const SYSTEM = `You are Nexvon, a thoughtful AI companion. Be clear, warm, and direct — no fluff, no emoji, no filler praise. Help with thinking, writing, code, science, and decisions. Use markdown when it helps: headings, lists, and fenced code. Be concise unless the user wants depth. Sound like a sharp friend, not a corporate assistant. When you have a search tool available, use it for anything that depends on current or fast-changing information instead of guessing. When knowledge-library excerpts are provided, prefer them for the user's own documents.`;
 
 type IncomingPart =
   | { type?: string; text?: string }
@@ -21,6 +27,8 @@ type IncomingMessage = {
 type Incoming = {
   messages?: IncomingMessage[];
   provider?: string;
+  model?: string;
+  knowledge?: { title?: string; text?: string }[];
 };
 
 type ApiMessage = {
@@ -43,9 +51,8 @@ type ToolCall = {
 
 const MAX_IMAGE_PARTS_PER_MESSAGE = 6;
 const MAX_TEXT_LENGTH = 8000;
-const MAX_TOOL_ROUNDS = 2; // 1 tool round, then a forced final answer
+const MAX_TOOL_ROUNDS = 2;
 
-/** Validates and sanitizes one message's content, or returns null to drop the message. */
 function sanitizeContent(content: unknown): string | Array<Record<string, unknown>> | null {
   if (typeof content === "string") {
     const trimmed = content.slice(0, MAX_TEXT_LENGTH);
@@ -64,7 +71,6 @@ function sanitizeContent(content: unknown): string | Array<Record<string, unknow
     }
     if (part.type === "image_url" && "image_url" in part) {
       const url = part.image_url?.url;
-      // Only allow inline base64 image data — never arbitrary remote URLs (avoids SSRF-style abuse).
       if (
         imageCount < MAX_IMAGE_PARTS_PER_MESSAGE &&
         typeof url === "string" &&
@@ -82,15 +88,27 @@ function sanitizeProvider(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const id = value.trim().toLowerCase();
   if (!id || id === "auto") return undefined;
-  if (!/^[a-z][a-z0-9_-]{0,31}$/.test(id)) return undefined;
+  if (!/^[a-z][a-z0-9_/-]{0,63}$/.test(id)) return undefined;
   return id;
 }
 
-/**
- * Tools available to the model. Gated on their own env var so an unconfigured
- * tool just doesn't show up — chat still works with zero tools.
- * Add a RAG tool the same way: a ToolDef here + a handler in `runTool`.
- */
+function knowledgeBlock(items: Incoming["knowledge"]): string {
+  if (!items?.length) return "";
+  const lines = [
+    "Retrieved knowledge from the user's library. Prefer these when they answer the question. Cite the document name.",
+    "",
+  ];
+  items.slice(0, 8).forEach((item, i) => {
+    const title = (item.title || "Document").slice(0, 120);
+    const text = (item.text || "").slice(0, 1200);
+    if (!text.trim()) return;
+    lines.push(`[${i + 1}] ${title}`);
+    lines.push(text);
+    lines.push("");
+  });
+  return lines.join("\n").slice(0, 6000);
+}
+
 function buildTools(): ToolDef[] {
   const tools: ToolDef[] = [];
   if (isSearchConfigured()) {
@@ -99,7 +117,7 @@ function buildTools(): ToolDef[] {
       function: {
         name: "web_search",
         description:
-          "Search the web. Use for anything current, fast-changing, or that you're not certain about: news, prices, recent releases, who/what/when facts.",
+          "Search the live web via Brave and/or Serper. Use for anything current, fast-changing, or that you're not certain about: news, prices, recent releases, who/what/when facts.",
         parameters: {
           type: "object",
           properties: { query: { type: "string", description: "The search query." } },
@@ -116,13 +134,13 @@ async function runTool(name: string, argsJson: string): Promise<string> {
   try {
     args = JSON.parse(argsJson || "{}");
   } catch {
-    /* malformed arguments — proceed with empty args */
+    /* malformed */
   }
   if (name === "web_search") {
     const query = typeof args.query === "string" ? args.query : "";
     if (!query.trim()) return "No search query provided.";
     try {
-      const results = await serperSearch(query);
+      const results = await webSearch(query);
       return formatSearchResults(query, results);
     } catch (err) {
       return `Search failed: ${err instanceof Error ? err.message : "unknown error"}`;
@@ -160,10 +178,6 @@ async function fetchProvider(
   });
 }
 
-/**
- * Tries each provider in the ordered chain. Auto mode walks every configured
- * backend; a specific pick uses that backend only.
- */
 async function callUpstream(
   messages: ApiMessage[],
   tools: ToolDef[],
@@ -194,23 +208,89 @@ async function callUpstream(
   throw new Error(`All providers failed — ${failures.join("; ")}`);
 }
 
+function mapBackendProviders(raw: unknown): { id: string; label: string; model: string }[] {
+  if (!raw || typeof raw !== "object") return [];
+  const body = raw as {
+    providers?: { id?: string; default_model?: string; configured?: boolean }[];
+  };
+  return (body.providers ?? [])
+    .filter((p) => p.configured !== false && p.id)
+    .map((p) => ({
+      id: String(p.id),
+      label: String(p.id),
+      model: String(p.default_model || ""),
+    }));
+}
+
+async function statusPayload() {
+  const probe = await probeBackend();
+  let providers = publicProviderList();
+  if (probe.connected) {
+    try {
+      const res = await backendFetch("/v1/models");
+      if (res?.ok) {
+        const mapped = mapBackendProviders(await res.json());
+        if (mapped.length > 0) providers = mapped;
+      }
+    } catch {
+      /* keep local list */
+    }
+  }
+  return {
+    providers,
+    search: {
+      enabled: isSearchConfigured() || Boolean(probe.health?.search),
+      engines: configuredSearchEngines(),
+    },
+    files: true,
+    rag: true,
+    backend: { configured: probe.configured, connected: probe.connected },
+  };
+}
+
+async function proxyChat(request: Request, body: Incoming) {
+  const probe = await probeBackend();
+  if (!probe.connected) return null;
+
+  const provider = sanitizeProvider(body.provider) || sanitizeProvider(body.model);
+  const payload = {
+    messages: body.messages,
+    stream: true,
+    model: provider || "auto",
+    provider: provider || "auto",
+    use_search: "auto",
+    knowledge: body.knowledge,
+  };
+
+  const res = await backendFetch("/v1/chat", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!res) return null;
+  if (!res.ok) {
+    let detail = `Backend HTTP ${res.status}`;
+    try {
+      const j = (await res.json()) as { detail?: string; error?: string };
+      detail = j.detail || j.error || detail;
+    } catch {
+      /* ignore */
+    }
+    return Response.json({ error: detail }, { status: res.status });
+  }
+  return new Response(res.body, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
+}
+
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
-      GET: async () => {
-        return Response.json({
-          providers: publicProviderList(),
-          search: isSearchConfigured(),
-        });
-      },
+      GET: async () => Response.json(await statusPayload()),
       POST: async ({ request }) => {
-        if (!hasAnyProviderConfigured()) {
-          return Response.json(
-            { error: "Nexvon is offline in this environment." },
-            { status: 503 },
-          );
-        }
-
         let body: Incoming;
         try {
           body = (await request.json()) as Incoming;
@@ -218,20 +298,35 @@ export const Route = createFileRoute("/api/chat")({
           return Response.json({ error: "Invalid request." }, { status: 400 });
         }
 
-        const preferred = sanitizeProvider(body.provider);
+        const proxied = await proxyChat(request, body);
+        if (proxied) return proxied;
+
+        if (!hasAnyProviderConfigured()) {
+          return Response.json(
+            { error: "Nexvon is offline in this environment. Set a chat API key, or point NEXVON_API_URL at the backend." },
+            { status: 503 },
+          );
+        }
+
+        const preferred = sanitizeProvider(body.provider) || sanitizeProvider(body.model);
         const raw = Array.isArray(body.messages) ? body.messages : [];
         const messages: ApiMessage[] = raw
           .filter((m) => m.role === "user" || m.role === "assistant")
           .slice(-32)
-          .map((m) => ({ role: m.role as "user" | "assistant", content: sanitizeContent(m.content) }))
+          .map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: sanitizeContent(m.content),
+          }))
           .filter((m): m is ApiMessage => m.content !== null);
 
         if (messages.length === 0 || messages.at(-1)?.role !== "user") {
           return Response.json({ error: "Send a message first." }, { status: 400 });
         }
 
+        const extra = knowledgeBlock(body.knowledge);
+        const system = extra ? `${SYSTEM}\n\n${extra}` : SYSTEM;
         const tools = buildTools();
-        const conversation: ApiMessage[] = [{ role: "system", content: SYSTEM }, ...messages];
+        const conversation: ApiMessage[] = [{ role: "system", content: system }, ...messages];
 
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
@@ -260,7 +355,6 @@ export const Route = createFileRoute("/api/chat")({
                 const reader = upstream.body!.getReader();
                 const decoder = new TextDecoder();
                 let buffer = "";
-                let finishReason: string | null = null;
                 const pendingCalls = new Map<number, { id: string; name: string; args: string }>();
 
                 while (true) {
@@ -290,11 +384,10 @@ export const Route = createFileRoute("/api/chat")({
                     try {
                       json = JSON.parse(payload);
                     } catch {
-                      continue; // skip malformed chunk
+                      continue;
                     }
                     const choice = json.choices?.[0];
                     const delta = choice?.delta;
-                    if (choice?.finish_reason) finishReason = choice.finish_reason;
                     if (delta?.tool_calls) {
                       for (const tc of delta.tool_calls) {
                         const entry = pendingCalls.get(tc.index) ?? {
@@ -307,11 +400,9 @@ export const Route = createFileRoute("/api/chat")({
                         if (tc.function?.arguments) entry.args += tc.function.arguments;
                         pendingCalls.set(tc.index, entry);
                       }
-                      continue; // don't forward tool-call deltas as text
+                      continue;
                     }
-                    if (delta?.content) {
-                      send({ text: delta.content });
-                    }
+                    if (delta?.content) send({ text: delta.content });
                   }
                 }
 
@@ -347,7 +438,6 @@ export const Route = createFileRoute("/api/chat")({
                   const result = await runTool(c.name, c.args);
                   conversation.push({ role: "tool", tool_call_id: c.id, content: result });
                 }
-                void finishReason;
               }
 
               send({ error: "Nexvon couldn't finish that response." });
@@ -361,9 +451,6 @@ export const Route = createFileRoute("/api/chat")({
                 /* already closed */
               }
             }
-          },
-          cancel() {
-            /* upstream readers are per-round and released as we go */
           },
         });
 

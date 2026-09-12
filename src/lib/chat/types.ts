@@ -24,3 +24,28 @@ export type Conversation = {
   messages: ChatMessage[];
   updatedAt: number;
 };
+
+export type Suggestion = {
+  id: string;
+  title: string;
+  hint: string;
+  prompt: string;
+};
+
+export type KnowledgeDoc = {
+  id: string;
+  name: string;
+  mimeType: string;
+  text: string;
+  chunks: string[];
+  createdAt: number;
+  size: number;
+};
+
+export type ServiceStatus = {
+  providers: { id: string; label: string; model: string }[];
+  search: { enabled: boolean; engines: string[] };
+  files: boolean;
+  rag: boolean;
+  backend: { configured: boolean; connected: boolean };
+};

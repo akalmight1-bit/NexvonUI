@@ -48,7 +48,7 @@ function SuggestionCard({
     <button
       type="button"
       onClick={() => onPick(suggestion.prompt)}
-      className="anim-fade flex h-full flex-col rounded-lg border border-border bg-elevated p-3 text-left shadow-[var(--shadow-border)] transition-[background-color,transform] duration-150 hover:bg-surface active:scale-[0.98] sm:p-4"
+      className="anim-fade flex h-full min-h-11 flex-col rounded-lg border border-border bg-elevated p-3 text-left shadow-[var(--shadow-border)] transition-[background-color,transform] duration-150 hover:bg-surface active:scale-[0.98] sm:p-4"
       style={{ animationDelay: `${delay}ms` }}
     >
       <Icon className="size-4 text-faint" />

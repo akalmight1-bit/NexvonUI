@@ -115,6 +115,10 @@ html[data-theme="light"] {
   p {
     text-wrap: pretty;
   }
+  img {
+    outline: 1px solid color-mix(in oklab, var(--fg) 10%, transparent);
+    outline-offset: -1px;
+  }
 }
 
 ::-webkit-scrollbar {
